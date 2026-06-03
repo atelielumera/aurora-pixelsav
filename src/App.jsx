@@ -1391,36 +1391,42 @@ export default function App() {
                             borderRadius: isCliente ? "2px 8px 8px 8px" : "8px 2px 8px 8px",
                             padding: "7px 10px",
                           }}>
-                            {m.type === "image" && m.url ? (
-                              <div>
-                                <img src={m.url} alt={m.fileName} onClick={() => setLightbox(m.url)}
-                                  style={{ maxWidth: 220, maxHeight: 180, borderRadius: 6, cursor: "pointer", display: "block", marginBottom: 4 }} />
-                                {m.fileName && <div style={{ color: W.sub, fontSize: 11 }}>{m.fileName}</div>}
-                              </div>
-                            ) : m.type === "doc" ? (
-                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <span style={{ fontSize: 28 }}>📄</span>
+                            {(() => {
+                              const mediaUrl = m.url || (m.mediaBase64 ? `data:${m.mimeType || (m.type === "image" ? "image/jpeg" : m.type === "audio" ? "audio/ogg" : "application/octet-stream")};base64,${m.mediaBase64}` : null);
+                              if (m.type === "image") return mediaUrl ? (
                                 <div>
-                                  <div style={{ color: W.text, fontSize: 13 }}>{m.fileName || m.text}</div>
-                                  {m.size && <div style={{ color: W.sub, fontSize: 11 }}>{(m.size / 1024).toFixed(1)} KB</div>}
-                                  {m.url && (
-                                    <a href={m.url} download={m.fileName || "documento"}
-                                      style={{ color: W.green, fontSize: 12, textDecoration: "none" }}>
-                                      ⬇ Baixar
-                                    </a>
-                                  )}
+                                  <img src={mediaUrl} alt={m.fileName} onClick={() => setLightbox(mediaUrl)}
+                                    style={{ maxWidth: 220, maxHeight: 180, borderRadius: 6, cursor: "pointer", display: "block", marginBottom: 4 }} />
+                                  {m.fileName && <div style={{ color: W.sub, fontSize: 11 }}>{m.fileName}</div>}
                                 </div>
-                              </div>
-                            ) : m.type === "audio" ? (
-                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                {m.url
-                                  ? <audio controls src={m.url} style={{ maxWidth: 220, height: 36 }} />
-                                  : <div style={{ display: "flex", alignItems: "center", gap: 6, color: W.text, fontSize: 13 }}><span style={{ fontSize: 18 }}>🎤</span><span>{m.text || "[áudio]"}</span></div>
-                                }
-                              </div>
-                            ) : (
+                              ) : <div style={{ color: W.sub, fontSize: 13 }}>🖼 {m.text || "imagem"}</div>;
+                              if (m.type === "doc") return (
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span style={{ fontSize: 28 }}>📄</span>
+                                  <div>
+                                    <div style={{ color: W.text, fontSize: 13 }}>{m.fileName || m.text}</div>
+                                    {mediaUrl && (
+                                      <a href={mediaUrl} download={m.fileName || "documento"}
+                                        style={{ color: W.green, fontSize: 12, textDecoration: "none" }}>
+                                        ⬇ Baixar
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                              if (m.type === "audio") return (
+                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                  {mediaUrl
+                                    ? <audio controls src={mediaUrl} style={{ maxWidth: 220, height: 36 }} />
+                                    : <div style={{ display: "flex", alignItems: "center", gap: 6, color: W.text, fontSize: 13 }}><span style={{ fontSize: 18 }}>🎤</span><span>{m.text || "[áudio]"}</span></div>
+                                  }
+                                </div>
+                              );
+                              return null;
+                            })()}
+                            {m.type === "text" &&
                               <div style={{ color: W.text, fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.text}</div>
-                            )}
+                            }
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 4, marginTop: 3 }}>
                               <span style={{ color: W.sub, fontSize: 11 }}>{m.time}</span>
                               {!isCliente && <span style={{ color: "#53bdeb", fontSize: 13 }}>✓✓</span>}
