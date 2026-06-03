@@ -1,43 +1,35 @@
-// Upstash Redis via REST API pura (sem dependências)
-// Fallback para global._msgs quando UPSTASH não configurado (dev/preview single-instance)
+import Redis from "ioredis";
 
-const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
-const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const KEY = "aurora_msgs";
 const MAX = 500;
 
-async function redisCmd(...args) {
-  const r = await fetch(`${UPSTASH_URL}/${args.map(a => encodeURIComponent(a)).join("/")}`, {
-    headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
-  });
-  const d = await r.json();
-  return d.result;
+let _redis = null;
+function getRedis() {
+  if (!_redis && process.env.REDIS_URL) {
+    _redis = new Redis(process.env.REDIS_URL, { lazyConnect: false, maxRetriesPerRequest: 2 });
+    _redis.on("error", () => { _redis = null; });
+  }
+  return _redis;
 }
 
 async function getMsgs() {
-  if (UPSTASH_URL && UPSTASH_TOKEN) {
+  const r = getRedis();
+  if (r) {
     try {
-      const list = await redisCmd("lrange", KEY, 0, MAX - 1);
-      return (list || []).map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
-    } catch { /* fallback */ }
+      const list = await r.lrange(KEY, 0, MAX - 1);
+      return list.map(s => { try { return JSON.parse(s); } catch { return null; } }).filter(Boolean);
+    } catch {}
   }
   return global._msgs || [];
 }
 
 async function addMsg(msg) {
-  if (UPSTASH_URL && UPSTASH_TOKEN) {
+  const r = getRedis();
+  if (r) {
     try {
-      // LPUSH + trim para manter máximo de 500
-      const r = await fetch(`${UPSTASH_URL}/pipeline`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${UPSTASH_TOKEN}`, "Content-Type": "application/json" },
-        body: JSON.stringify([
-          ["lpush", KEY, JSON.stringify(msg)],
-          ["ltrim", KEY, 0, MAX - 1],
-        ]),
-      });
-      if (r.ok) return;
-    } catch { /* fallback */ }
+      await r.pipeline().lpush(KEY, JSON.stringify(msg)).ltrim(KEY, 0, MAX - 1).exec();
+      return;
+    } catch {}
   }
   if (!global._msgs) global._msgs = [];
   global._msgs.unshift(msg);
@@ -79,10 +71,9 @@ export default async function handler(req, res) {
 
   if (req.method === "GET") {
     const since = parseInt(req.query.since || "0");
-    // debug=1 retorna todos sem filtro (para diagnosticar)
     if (req.query.debug === "1") {
       const all = await getMsgs();
-      res.status(200).json({ messages: all, ts: Date.now(), store: UPSTASH_URL ? "upstash" : "global", count: all.length });
+      res.status(200).json({ messages: all, ts: Date.now(), store: process.env.REDIS_URL ? "redis" : "global", count: all.length });
       return;
     }
     const msgs = (await getMsgs()).filter(m => m.receivedAt > since);
