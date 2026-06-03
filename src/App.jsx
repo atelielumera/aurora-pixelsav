@@ -219,6 +219,56 @@ function extractLead(msgs, cur) {
   return updated;
 }
 
+// ─── KANBAN STAGE CONFIG ──────────────────────────────────────────────────────
+const STAGE_CFG = {
+  novo:     { label: "Novo",      color: "#6b7280", bg: "#6b728015", border: "#6b728040" },
+  frio:     { label: "Frio 🔵",   color: "#60a5fa", bg: "#60a5fa15", border: "#60a5fa40" },
+  morno:    { label: "Morno 🟠",  color: "#f97316", bg: "#f9731615", border: "#f9731640" },
+  quente:   { label: "Quente 🔴", color: "#ef4444", bg: "#ef444415", border: "#ef444440" },
+  proposta: { label: "Proposta",  color: "#00a884", bg: "#00a88415", border: "#00a88440" },
+  fechado:  { label: "Fechado",   color: "#374045", bg: "#37404515", border: "#37404540" },
+};
+
+const STAGE_ORDER = ["novo", "frio", "morno", "quente", "proposta", "fechado"];
+
+function getStage(convo, resumoSentMap) {
+  const ld = convo.leadData || {};
+  if (ld.stage === "fechado") return "fechado";
+  if (resumoSentMap && resumoSentMap[convo.id]) return "proposta";
+  const sc = scoreCalc(ld);
+  const clientMsgs = (convo.messages || []).filter(m => m.from === "cliente");
+  if (clientMsgs.length === 0) return "novo";
+  if (sc >= 80) return "quente";
+  if (sc >= 40) return "morno";
+  if (sc > 0) return "frio";
+  return "novo";
+}
+
+// ─── KANBAN STAGE CONFIG ──────────────────────────────────────────────────────
+const STAGE_CFG = {
+  novo:     { label: "Novo",      color: "#6b7280", bg: "#6b728015", border: "#6b728040" },
+  frio:     { label: "Frio 🔵",   color: "#60a5fa", bg: "#60a5fa15", border: "#60a5fa40" },
+  morno:    { label: "Morno 🟠",  color: "#f97316", bg: "#f9731615", border: "#f9731640" },
+  quente:   { label: "Quente 🔴", color: "#ef4444", bg: "#ef444415", border: "#ef444440" },
+  proposta: { label: "Proposta",  color: "#00a884", bg: "#00a88415", border: "#00a88440" },
+  fechado:  { label: "Fechado",   color: "#374045", bg: "#37404515", border: "#37404540" },
+};
+
+const STAGE_ORDER = ["novo", "frio", "morno", "quente", "proposta", "fechado"];
+
+function getStage(convo, resumoSentMap) {
+  const ld = convo.leadData || {};
+  if (ld.stage === "fechado") return "fechado";
+  if ((resumoSentMap && resumoSentMap[convo.id]) || ld.stage === "proposta") return "proposta";
+  const sc = scoreCalc(ld);
+  const clientMsgs = (convo.messages || []).filter(m => m.from === "cliente");
+  if (clientMsgs.length === 0) return "novo";
+  if (sc >= 80) return "quente";
+  if (sc >= 40) return "morno";
+  if (sc > 0) return "frio";
+  return "novo";
+}
+
 // ─── AVATAR COLOR ─────────────────────────────────────────────────────────────
 function avatarColor(name) {
   const colors = ["#6b7280","#8b5cf6","#ec4899","#f97316","#10b981","#3b82f6","#ef4444","#14b8a6","#f59e0b","#6366f1"];
@@ -323,6 +373,18 @@ export default function App() {
   const [cfg, setCfg] = useState({ geminiKey: "", evoUrl: "", instance: "", evoKey: "", groupId: "" });
   const [showCfg, setShowCfg] = useState(false);
   const [showWA, setShowWA] = useState(false);
+  const [mainView, setMainView] = useState("chat"); // "chat" | "crm"
+  const [crmSearch, setCrmSearch] = useState("");
+  const [crmProduto, setCrmProduto] = useState("");
+  const [crmTag, setCrmTag] = useState("");
+  const [tagInputs, setTagInputs] = useState({}); // { [convoId]: string }
+  const [mainView, setMainView] = useState("chat"); // "chat" | "crm"
+
+  // CRM state
+  const [crmSearch, setCrmSearch] = useState("");
+  const [crmProduto, setCrmProduto] = useState("");
+  const [crmTag, setCrmTag] = useState("");
+  const [tagInputs, setTagInputs] = useState({}); // { [convoId]: string }
 
   const [convos, setConvos] = useState([
     { id: 1, name: "Cliente Exemplo", phone: "41 99999-0001", lastMsg: "Oi, vi vocês no Instagram!", time: "09:14", unread: 1, messages: [], leadData: {}, attachments: [], paused: false, waJid: null }
@@ -830,6 +892,50 @@ export default function App() {
     ].filter(Boolean).join("\n");
   }
 
+  // ── CRM helpers ───────────────────────────────────────────────────────────
+  function addTag(convoId, tag) {
+    const t = tag.trim();
+    if (!t) return;
+    setConvos(cs => cs.map(c => {
+      if (c.id !== convoId) return c;
+      const tags = c.leadData?.tags || [];
+      if (tags.includes(t)) return c;
+      return { ...c, leadData: { ...c.leadData, tags: [...tags, t] } };
+    }));
+    setTagInputs(ti => ({ ...ti, [convoId]: "" }));
+  }
+
+  function removeTag(convoId, tag) {
+    setConvos(cs => cs.map(c => {
+      if (c.id !== convoId) return c;
+      const tags = (c.leadData?.tags || []).filter(tg => tg !== tag);
+      return { ...c, leadData: { ...c.leadData, tags } };
+    }));
+  }
+
+  function markFechado(convoId) {
+    updateLead(convoId, { stage: "fechado" });
+  }
+
+  function openConvoFromCrm(convoId) {
+    setMainView("chat");
+    setActiveId(convoId);
+    updateConvo(convoId, { unread: 0 });
+    setSuggestion(null); setEditedSug(""); setCountdown(null); setShowResumo(false); setSugError("");
+  }
+
+  // Derived CRM data
+  const allProdutos = [...new Set(convos.map(c => c.leadData?.produto).filter(Boolean))];
+  const allTags = [...new Set(convos.flatMap(c => c.leadData?.tags || []))];
+
+  const crmFiltered = convos.filter(c => {
+    if (crmSearch && !c.name.toLowerCase().includes(crmSearch.toLowerCase()) &&
+        !(c.leadData?.empresa || "").toLowerCase().includes(crmSearch.toLowerCase())) return false;
+    if (crmProduto && c.leadData?.produto !== crmProduto) return false;
+    if (crmTag && !(c.leadData?.tags || []).includes(crmTag)) return false;
+    return true;
+  });
+
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER
   // ─────────────────────────────────────────────────────────────────────────
@@ -921,7 +1027,167 @@ export default function App() {
       )}
 
       {/* App layout */}
-      <div style={{ display: "flex", height: "100vh", width: "100vw", background: "#000", fontFamily: "'Segoe UI', system-ui, sans-serif" }}>
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh", width: "100vw", background: "#000", fontFamily: "'Segoe UI', system-ui, sans-serif" }}>
+
+        {/* ── TOP NAV BAR ──────────────────────────────────────────────────── */}
+        <div style={{ height: 48, background: W.leftHdr, display: "flex", alignItems: "center", padding: "0 16px", gap: 8, flexShrink: 0, borderBottom: `1px solid ${W.divider}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
+            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg,#00a884,#005c4b)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 14 }}>A</div>
+            <span style={{ color: W.text, fontWeight: 700, fontSize: 15 }}>Aurora · PixelSAV</span>
+            <span style={{ marginLeft: 4, fontSize: 9, color: webhookStatus === "ok" ? W.green : "#ef4444" }}>{webhookStatus === "ok" ? "● online" : "● erro"}</span>
+          </div>
+          <div style={{ display: "flex", gap: 4 }}>
+            {[["💬 Chat","chat"],["📋 CRM","crm"]].map(([label, view]) => (
+              <button key={view} onClick={() => setMainView(view)}
+                style={{ background: mainView === view ? W.green : W.inputBg, border: "none", borderRadius: 8, padding: "6px 18px", color: mainView === view ? "#fff" : W.text, fontWeight: mainView === view ? 700 : 400, fontSize: 13, cursor: "pointer", transition: "all .15s" }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── CRM KANBAN VIEW ──────────────────────────────────────────────── */}
+        {mainView === "crm" && (() => {
+          const allProdutos = [...new Set(convos.map(c => c.leadData?.produto).filter(Boolean))];
+          const allTags = [...new Set(convos.flatMap(c => c.leadData?.tags || []))];
+
+          const filtered = convos.filter(c => {
+            const ld = c.leadData || {};
+            if (crmSearch && !c.name.toLowerCase().includes(crmSearch.toLowerCase()) && !(c.phone || "").includes(crmSearch)) return false;
+            if (crmProduto && ld.produto !== crmProduto) return false;
+            if (crmTag && !(ld.tags || []).includes(crmTag)) return false;
+            return true;
+          });
+
+          return (
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: W.chatBg }}>
+              {/* Filter bar */}
+              <div style={{ padding: "10px 16px", background: W.leftHdr, display: "flex", gap: 10, alignItems: "center", flexShrink: 0, borderBottom: `1px solid ${W.divider}` }}>
+                <div style={{ background: W.inputBg, borderRadius: 8, display: "flex", alignItems: "center", padding: "0 10px", gap: 6, flex: 1, maxWidth: 280 }}>
+                  <span style={{ color: W.sub, fontSize: 13 }}>🔍</span>
+                  <input value={crmSearch} onChange={e => setCrmSearch(e.target.value)} placeholder="Buscar lead..."
+                    style={{ background: "none", border: "none", color: W.text, fontSize: 13, padding: "7px 0", outline: "none", flex: 1 }} />
+                </div>
+                <select value={crmProduto} onChange={e => setCrmProduto(e.target.value)}
+                  style={{ background: W.inputBg, border: "none", borderRadius: 8, padding: "7px 10px", color: crmProduto ? W.text : W.sub, fontSize: 13, outline: "none", cursor: "pointer" }}>
+                  <option value="">Produto (todos)</option>
+                  {allProdutos.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+                <select value={crmTag} onChange={e => setCrmTag(e.target.value)}
+                  style={{ background: W.inputBg, border: "none", borderRadius: 8, padding: "7px 10px", color: crmTag ? W.text : W.sub, fontSize: 13, outline: "none", cursor: "pointer" }}>
+                  <option value="">Tag (todas)</option>
+                  {allTags.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <span style={{ color: W.sub, fontSize: 12 }}>{filtered.length} lead{filtered.length !== 1 ? "s" : ""}</span>
+              </div>
+
+              {/* Columns */}
+              <div style={{ flex: 1, overflowX: "auto", overflowY: "hidden", display: "flex", padding: "16px", gap: 12 }}>
+                {STAGE_ORDER.map(stageKey => {
+                  const cfg2 = STAGE_CFG[stageKey];
+                  const cards = filtered.filter(c => getStage(c, resumoSent) === stageKey);
+                  return (
+                    <div key={stageKey} style={{ minWidth: 260, width: 260, flexShrink: 0, display: "flex", flexDirection: "column", background: cfg2.bg, border: `1px solid ${cfg2.border}`, borderRadius: 12, overflow: "hidden" }}>
+                      {/* Column header */}
+                      <div style={{ borderTop: `3px solid ${cfg2.color}`, padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, background: cfg2.bg, flexShrink: 0 }}>
+                        <span style={{ color: cfg2.color, fontWeight: 700, fontSize: 14, flex: 1 }}>{cfg2.label}</span>
+                        <span style={{ background: cfg2.border, color: cfg2.color, borderRadius: 20, padding: "2px 9px", fontSize: 12, fontWeight: 700 }}>{cards.length}</span>
+                      </div>
+
+                      {/* Cards */}
+                      <div style={{ flex: 1, overflowY: "auto", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 8 }}>
+                        {cards.map(convo => {
+                          const ld = convo.leadData || {};
+                          const sc = scoreCalc(ld);
+                          const si2 = scoreInfo(sc);
+                          const tags = ld.tags || [];
+                          const tagInput = tagInputs[convo.id] || "";
+
+                          function addTag() {
+                            const val = tagInput.trim();
+                            if (!val) return;
+                            const newTags = [...new Set([...tags, val])];
+                            updateLead(convo.id, { tags: newTags });
+                            setTagInputs(t => ({ ...t, [convo.id]: "" }));
+                          }
+
+                          function removeTag(tag) {
+                            updateLead(convo.id, { tags: tags.filter(t => t !== tag) });
+                          }
+
+                          return (
+                            <div key={convo.id} style={{ background: W.leftBg, border: `1px solid ${W.divider}`, borderRadius: 10, padding: "12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                              {/* Avatar + name */}
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <div style={{ width: 36, height: 36, borderRadius: "50%", background: avatarColor(convo.name), display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
+                                  {(convo.name || "?")[0].toUpperCase()}
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ color: W.text, fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{convo.name}</div>
+                                  {ld.empresa && <div style={{ color: W.sub, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ld.empresa}</div>}
+                                </div>
+                              </div>
+
+                              {/* Solution + budget */}
+                              {(ld.produto || ld.orcamento) && (
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                  {ld.produto && <span style={{ background: "#00a88420", color: W.green, borderRadius: 6, padding: "2px 8px", fontSize: 11 }}>{ld.produto}</span>}
+                                  {ld.orcamento && <span style={{ background: W.inputBg, color: W.sub, borderRadius: 6, padding: "2px 8px", fontSize: 11 }}>💰 {ld.orcamento}</span>}
+                                </div>
+                              )}
+
+                              {/* Score badge */}
+                              <div style={{ display: "inline-flex", alignSelf: "flex-start", background: si2.bg, color: si2.color, borderRadius: 8, padding: "2px 9px", fontSize: 11, fontWeight: 600 }}>
+                                {si2.emoji} {si2.label} {sc}/100
+                              </div>
+
+                              {/* Tags */}
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                {tags.map(tag => (
+                                  <span key={tag} onClick={() => removeTag(tag)} title="Remover tag"
+                                    style={{ background: W.inputBg, color: W.icon, borderRadius: 6, padding: "2px 7px", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 3 }}>
+                                    {tag} <span style={{ color: "#ef444480", fontSize: 10 }}>✕</span>
+                                  </span>
+                                ))}
+                                <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                                  <input value={tagInput} onChange={e => setTagInputs(t => ({ ...t, [convo.id]: e.target.value }))}
+                                    onKeyDown={e => e.key === "Enter" && addTag()}
+                                    placeholder="+ tag"
+                                    style={{ background: W.inputBg, border: "none", borderRadius: 6, padding: "2px 7px", color: W.sub, fontSize: 11, outline: "none", width: 60 }} />
+                                </div>
+                              </div>
+
+                              {/* Action buttons */}
+                              <div style={{ display: "flex", gap: 6, marginTop: 2 }}>
+                                <button onClick={() => { setMainView("chat"); setActiveId(convo.id); updateConvo(convo.id, { unread: 0 }); setSuggestion(null); setEditedSug(""); setCountdown(null); setShowResumo(false); setSugError(""); }}
+                                  style={{ flex: 1, background: W.inputBg, border: "none", borderRadius: 7, padding: "6px 0", color: W.text, fontSize: 12, cursor: "pointer" }}>
+                                  💬 Ver conversa
+                                </button>
+                                {stageKey === "proposta" && (
+                                  <button onClick={() => updateLead(convo.id, { stage: "fechado" })}
+                                    style={{ flex: 1, background: "#00a88420", border: "1px solid #00a88444", borderRadius: 7, padding: "6px 0", color: W.green, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+                                    ✓ Fechado
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {cards.length === 0 && (
+                          <div style={{ textAlign: "center", color: W.sub, fontSize: 12, padding: "20px 0" }}>Nenhum lead</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ── CHAT VIEW ────────────────────────────────────────────────────── */}
+        {mainView === "chat" && (
+        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
         {/* ── COLUNA ESQUERDA ─────────────────────────────────────────────── */}
         <div style={{ width: 360, minWidth: 360, display: "flex", flexDirection: "column", background: W.leftBg, borderRight: `1px solid ${W.divider}` }}>
@@ -1415,6 +1681,8 @@ export default function App() {
             </div>
           )}
         </div>
+        </div>
+        )}
       </div>
     </>
   );
