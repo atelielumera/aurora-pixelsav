@@ -95,38 +95,55 @@ function extractLead(msgs, cur) {
     prazo: /janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|\d{4}|semana|urgente/i.test(t),
   };
 }
-function buildResumo(msgs, ld, score, attachments) {
+async function buildResumo(msgs, ld, score, attachments, geminiKey) {
   const si = scoreInfo(score);
   const hasAttach = attachments && attachments.length > 0;
+
+  // Monta histórico para o Gemini resumir
+  const historico = msgs
+    .filter(m => m.type === "text" || !m.type)
+    .map(m => `[${m.from === "cliente" ? "Cliente" : "Aurora"}]: ${m.text || ""}`)
+    .join("\n");
+
+  let resumoIA = "";
+  if (geminiKey && historico) {
+    try {
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: "Você é um assistente comercial da PixelSAV. Analise a conversa e gere um resumo executivo em português com: 1) O que o cliente quer, 2) Principais informações coletadas, 3) Próximos passos sugeridos. Seja objetivo, máximo 10 linhas, sem markdown." }] },
+            contents: [{ role: "user", parts: [{ text: `Resumo desta conversa:\n${historico}` }] }],
+            generationConfig: { temperature: 0.3, maxOutputTokens: 400 }
+          })
+        }
+      );
+      const data = await r.json();
+      resumoIA = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    } catch {}
+  }
+
   const lines = [
-    `🎯 *RESUMO DO LEAD — PixelSAV*`, ``,
+    `🎯 *RESUMO DO ATENDIMENTO — PixelSAV*`, ``,
     `${si.emoji} *Status:* ${si.label} (${score}/100)`, ``,
-    `*📋 DADOS*`,
+    `*📋 DADOS DO CLIENTE*`,
     ld.nome ? `• Nome: ${ld.nome}` : null,
     ld.empresa ? `• Empresa: ${ld.empresa}` : null,
     ld.email ? `• E-mail: ${ld.email}` : null,
     ld.telefone ? `• Tel: ${ld.telefone}` : null,
-    ld.cidade ? `• Cidade: ${ld.cidade}` : null, ``,
-    `*📦 PROJETO*`,
-    ld.produto ? `• Solução: ${ld.produto}` : null,
-    ld.prazo ? `• Prazo: ${ld.prazo}` : null,
+    ld.cidade ? `• Cidade: ${ld.cidade}` : null,
+    ld.produto ? `• Solução de interesse: ${ld.produto}` : null,
     ld.orcamento ? `• Orçamento: ${ld.orcamento}` : null,
+    ld.prazo ? `• Prazo: ${ld.prazo}` : null,
     ld.tipo ? `• Tipo: ${ld.tipo}` : null, ``,
-    `*💬 BANT*`,
-    `• Budget: ${ld.orcamento || "—"}`,
-    `• Authority: ${ld.decisor || "—"}`,
-    `• Need: ${ld.projeto ? "projeto definido" : "em descoberta"}`,
-    `• Timing: ${ld.prazo || "—"}`, ``,
-    `*📝 HISTÓRICO (últimas mensagens)*`,
-    ...msgs.slice(-5).map(m => {
-      if (m.type === "image") return `[${m.from === "cliente" ? "Cliente" : "Aurora"}] 🖼 Imagem: ${m.fileName || "sem nome"}`;
-      if (m.type === "doc") return `[${m.from === "cliente" ? "Cliente" : "Aurora"}] 📎 Arquivo: ${m.fileName || "sem nome"}`;
-      return `[${m.from === "cliente" ? "Cliente" : "Aurora"}] ${(m.text || "").slice(0, 90)}`;
-    }),
+    resumoIA ? `*📝 RESUMO DA CONVERSA*` : null,
+    resumoIA ? resumoIA : null,
     hasAttach ? `` : null,
-    hasAttach ? `*📂 ANEXOS ENVIADOS (${attachments.length})*` : null,
+    hasAttach ? `*📂 ARQUIVOS ENVIADOS PELO CLIENTE (${attachments.length})*` : null,
     ...(hasAttach ? attachments.map(a => `• ${a.type === "image" ? "🖼" : "📎"} ${a.fileName}`) : []),
-    ``, `_Agente Aurora · PixelSAV_`,
+    ``, `_Gerado por Aurora · PixelSAV_`,
   ].filter(x => x !== null).join("\n");
   return lines;
 }
@@ -322,6 +339,15 @@ function MessageBubble({ msg, showAvatar, clientName }) {
       {!isClient && <div style={{ width: 28, flexShrink: 0 }}>{showAvatar && <Avatar name="Aurora" size={28} gradient />}</div>}
     </div>
   );
+}
+
+// ─── RESUMO PREVIEW COMPONENT ───────────────────────────────────────────────
+function ResumoPreview({ msgs, leadData, score, attachments, geminiKey }) {
+  const [text, setText] = useState("Gerando resumo...");
+  useEffect(() => {
+    buildResumo(msgs, leadData, score, attachments, geminiKey).then(setText);
+  }, []);
+  return <pre style={{ color: "#e9edef", fontSize: 11.5, lineHeight: 1.65, whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0, fontFamily: "inherit" }}>{text}</pre>;
 }
 
 // ─── WHATSAPP PANEL ──────────────────────────────────────────────────────────
@@ -707,8 +733,9 @@ export default function AuroraAgent() {
     setResumoSending(true); setResumoErr("");
     try {
       if (!cfg.evoUrl || !cfg.instance || !cfg.groupId) throw new Error("Configure a Evolution API em ⚙️");
-      // 1. Send text summary
-      await sendTextEvolution(cfg, buildResumo(msgs, leadData, score, attachments));
+      // 1. Gera resumo com IA e envia
+      const resumoTexto = await buildResumo(msgs, leadData, score, attachments, cfg.geminiKey);
+      await sendTextEvolution(cfg, resumoTexto);
       // 2. Send each attachment
       for (const att of attachments) {
         try { await sendMediaEvolution(cfg, att); } catch (e) { console.warn("Falha ao enviar anexo:", att.fileName, e.message); }
@@ -929,9 +956,7 @@ export default function AuroraAgent() {
                 {showResumo && (
                   <div style={{ background: "#0d1a22", border: `1px solid ${W.divider}`, borderRadius: 10, padding: "12px", marginBottom: 6, animation: "fadeUp .2s ease" }}>
                     <div style={{ color: W.sub, fontSize: 10, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>PREVIEW DO RESUMO</div>
-                    <pre style={{ color: W.text, fontSize: 11.5, lineHeight: 1.65, whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0, fontFamily: "inherit" }}>
-                      {buildResumo(msgs, leadData, score, attachments)}
-                    </pre>
+                    <ResumoPreview msgs={msgs} leadData={leadData} score={score} attachments={attachments} geminiKey={cfg.geminiKey} />
                     {attachments.length > 0 && (
                       <div style={{ marginTop: 12, borderTop: `1px solid ${W.divider}`, paddingTop: 10 }}>
                         <div style={{ color: W.sub, fontSize: 10, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>ANEXOS QUE SERÃO ENVIADOS</div>
