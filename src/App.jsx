@@ -461,11 +461,60 @@ export default function AuroraAgent() {
 
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
+  const waPollingRef = useRef(null);
+  const lastMsgIdsSeen = useRef(new Set());
 
   useEffect(() => {
     try { const s = localStorage.getItem("aurora_cfg_v3"); if (s) setCfg(JSON.parse(s)); } catch {}
   }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [convos, activeId, suggestion, loading]);
+
+  // WhatsApp polling — busca mensagens novas a cada 5s
+  useEffect(() => {
+    if (waPollingRef.current) clearInterval(waPollingRef.current);
+    if (!cfg.evoUrl || !cfg.evoKey || !cfg.instance) return;
+    const poll = async () => {
+      try {
+        const r = await fetch(`${cfg.evoUrl}/chat/findMessages/${cfg.instance}?count=30`, {
+          headers: { apikey: cfg.evoKey }
+        });
+        if (!r.ok) return;
+        const data = await r.json();
+        const allMsgs = Array.isArray(data) ? data : (data.messages || data.records || []);
+        allMsgs.forEach(m => {
+          if (m.key?.fromMe) return;
+          const msgId = m.key?.id;
+          if (!msgId || lastMsgIdsSeen.current.has(msgId)) return;
+          lastMsgIdsSeen.current.add(msgId);
+          const from = m.key?.remoteJid || "";
+          const name = m.pushName || from.replace("@s.whatsapp.net", "");
+          const text = m.message?.conversation || m.message?.extendedTextMessage?.text || m.message?.imageMessage?.caption || "[mídia]";
+          const phone = from.replace("@s.whatsapp.net", "").replace("@g.us", "");
+          const msgTime = m.messageTimestamp ? new Date(m.messageTimestamp * 1000) : new Date();
+          const timeStr = String(msgTime.getHours()).padStart(2,"0") + ":" + String(msgTime.getMinutes()).padStart(2,"0");
+          setConvos(cs => {
+            const existing = cs.find(c => c.phone === phone || c.waJid === from);
+            if (existing) {
+              const alreadyIn = existing.messages.some(em => em.waId === msgId);
+              if (alreadyIn) return cs;
+              return cs.map(c => c.id === existing.id ? {
+                ...c,
+                messages: [...c.messages, { from: "cliente", text, time: timeStr, id: Date.now() + Math.random(), type: "text", waId: msgId }],
+                lastMsg: text.slice(0, 40), time: timeStr, unread: (c.unread || 0) + 1,
+              } : c);
+            } else {
+              return [{ id: Date.now() + Math.random(), name, phone, waJid: from, lastMsg: text.slice(0,40), time: timeStr, unread: 1,
+                messages: [{ from: "cliente", text, time: timeStr, id: Date.now(), type: "text", waId: msgId }],
+                leadData: {}, attachments: [] }, ...cs];
+            }
+          });
+        });
+      } catch {}
+    };
+    poll();
+    waPollingRef.current = setInterval(poll, 5000);
+    return () => clearInterval(waPollingRef.current);
+  }, [cfg.evoUrl, cfg.evoKey, cfg.instance]);
 
   const active = convos.find(c => c.id === activeId);
   const msgs = active?.messages || [];
