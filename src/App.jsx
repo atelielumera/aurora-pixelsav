@@ -234,31 +234,6 @@ const STAGE_ORDER = ["novo", "frio", "morno", "quente", "proposta", "fechado"];
 function getStage(convo, resumoSentMap) {
   const ld = convo.leadData || {};
   if (ld.stage === "fechado") return "fechado";
-  if (resumoSentMap && resumoSentMap[convo.id]) return "proposta";
-  const sc = scoreCalc(ld);
-  const clientMsgs = (convo.messages || []).filter(m => m.from === "cliente");
-  if (clientMsgs.length === 0) return "novo";
-  if (sc >= 80) return "quente";
-  if (sc >= 40) return "morno";
-  if (sc > 0) return "frio";
-  return "novo";
-}
-
-// ─── KANBAN STAGE CONFIG ──────────────────────────────────────────────────────
-const STAGE_CFG = {
-  novo:     { label: "Novo",      color: "#6b7280", bg: "#6b728015", border: "#6b728040" },
-  frio:     { label: "Frio 🔵",   color: "#60a5fa", bg: "#60a5fa15", border: "#60a5fa40" },
-  morno:    { label: "Morno 🟠",  color: "#f97316", bg: "#f9731615", border: "#f9731640" },
-  quente:   { label: "Quente 🔴", color: "#ef4444", bg: "#ef444415", border: "#ef444440" },
-  proposta: { label: "Proposta",  color: "#00a884", bg: "#00a88415", border: "#00a88440" },
-  fechado:  { label: "Fechado",   color: "#374045", bg: "#37404515", border: "#37404540" },
-};
-
-const STAGE_ORDER = ["novo", "frio", "morno", "quente", "proposta", "fechado"];
-
-function getStage(convo, resumoSentMap) {
-  const ld = convo.leadData || {};
-  if (ld.stage === "fechado") return "fechado";
   if ((resumoSentMap && resumoSentMap[convo.id]) || ld.stage === "proposta") return "proposta";
   const sc = scoreCalc(ld);
   const clientMsgs = (convo.messages || []).filter(m => m.from === "cliente");
@@ -377,14 +352,7 @@ export default function App() {
   const [crmSearch, setCrmSearch] = useState("");
   const [crmProduto, setCrmProduto] = useState("");
   const [crmTag, setCrmTag] = useState("");
-  const [tagInputs, setTagInputs] = useState({}); // { [convoId]: string }
-  const [mainView, setMainView] = useState("chat"); // "chat" | "crm"
-
-  // CRM state
-  const [crmSearch, setCrmSearch] = useState("");
-  const [crmProduto, setCrmProduto] = useState("");
-  const [crmTag, setCrmTag] = useState("");
-  const [tagInputs, setTagInputs] = useState({}); // { [convoId]: string }
+  const [tagInputs, setTagInputs] = useState({});
 
   const [convos, setConvos] = useState([]);
   const [activeId, setActiveId] = useState(null);
