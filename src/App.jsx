@@ -34,6 +34,7 @@ const GLOBAL_CSS = `
     .col-right.hidden { display: none; }
     .lead-panel { display: none !important; }
     .mobile-back { display: block !important; }
+    .delete-btn { opacity: 1 !important; }
   }
 `;
 
@@ -1294,9 +1295,10 @@ export default function App() {
                   </div>
                   <button
                     onClick={e => { e.stopPropagation(); if (window.confirm(`Excluir conversa com ${c.name}?`)) deleteConvo(c.id); }}
-                    style={{ background: "none", border: "none", color: "#ef444460", fontSize: 14, padding: "4px", flexShrink: 0, opacity: 0, transition: "opacity .15s" }}
+                    style={{ background: "none", border: "none", color: "#ef4444", fontSize: 16, padding: "6px 8px", flexShrink: 0, opacity: 0, transition: "opacity .15s", borderRadius: 6 }}
                     onMouseEnter={e => e.currentTarget.style.opacity = "1"}
                     onMouseLeave={e => e.currentTarget.style.opacity = "0"}
+                    className="delete-btn"
                     title="Excluir conversa"
                   >🗑</button>
                 </div>
