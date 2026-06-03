@@ -513,6 +513,55 @@ function WhatsAppPanel({ cfg, onSaveInstance, onClose }) {
   );
 }
 
+// ─── TIMER GLOBAL ────────────────────────────────────────────────────────────
+// Fora do React para evitar problemas de escopo
+let _timerGlobal = null;
+let _countdownGlobal = null;
+let _onSuggest = null; // callback para setar sugestão
+let _onCountdown = null; // callback para setar contador
+
+function dispararTimerGlobal(waJid, getConvos, getCfg) {
+  // Reinicia timer anterior
+  if (_timerGlobal) clearTimeout(_timerGlobal);
+  if (_countdownGlobal) clearInterval(_countdownGlobal);
+
+  const cfg = getCfg();
+
+  // Digitando no WhatsApp
+  if (waJid && cfg.evoUrl && cfg.evoKey && cfg.instance) {
+    fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `chat/presence/${cfg.instance}` })}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ number: waJid, options: { presence: "composing", delay: 30000 } }),
+    }).catch(() => {});
+  }
+
+  // Contador regressivo
+  let seg = 30;
+  if (_onCountdown) _onCountdown(seg);
+  _countdownGlobal = setInterval(() => {
+    seg -= 1;
+    if (_onCountdown) _onCountdown(seg > 0 ? seg : null);
+    if (seg <= 0) clearInterval(_countdownGlobal);
+  }, 1000);
+
+  // Após 30s — processa
+  _timerGlobal = setTimeout(() => {
+    clearInterval(_countdownGlobal);
+    if (_onCountdown) _onCountdown(null);
+    const currentCfg = getCfg();
+    if (!currentCfg.geminiKey) return;
+    const convos = getConvos();
+    const convo = convos.find(c => c.waJid === waJid);
+    if (!convo) return;
+    const msgs = convo.messages || [];
+    const ultima = msgs[msgs.length - 1];
+    if (!ultima || ultima.from !== "cliente") return;
+    callGemini(currentCfg.geminiKey, msgs).then(sug => {
+      if (_onSuggest) _onSuggest(sug);
+    }).catch(() => {});
+  }, 30000);
+}
+
 // ─── MAIN ────────────────────────────────────────────────────────────────────
 export default function AuroraAgent() {
   const [cfg, setCfg] = useState({ geminiKey: "", evoUrl: "", instance: "", evoKey: "", groupId: "" });
@@ -554,58 +603,38 @@ export default function AuroraAgent() {
   const cfgRef = useRef(cfg);
   useEffect(() => { cfgRef.current = cfg; }, [cfg]);
 
-  // ── TIMER 45s ─────────────────────────────────────────────────────
-  const delayTimerRef = useRef(null);
-  const countdownRef = useRef(null);
   const [countdown, setCountdown] = useState(null);
   const convosRef = useRef(convos);
   useEffect(() => { convosRef.current = convos; }, [convos]);
+  const cfgForTimer = useRef(cfg);
+  useEffect(() => { cfgForTimer.current = cfg; }, [cfg]);
 
-  // Chamado toda vez que chega mensagem do cliente
-  // Reinicia o timer de 45s (só se não estiver pausado)
+  // Conecta callbacks globais ao state do React
+  useEffect(() => {
+    _onSuggest = (sug) => { setSuggestion(sug); setEditedSug(sug); };
+    _onCountdown = (val) => setCountdown(val);
+    return () => { _onSuggest = null; _onCountdown = null; };
+  }, []);
+
+  // Observa convos — quando última msg é do cliente, dispara timer 30s
+  const lastClientMsgId = useRef(null);
+  useEffect(() => {
+    if (!active) return;
+    if (active.paused) return;
+    const msgs = active.messages || [];
+    if (!msgs.length) return;
+    const ultima = msgs[msgs.length - 1];
+    if (ultima.from !== "cliente") return;
+    if (ultima.waId === lastClientMsgId.current) return; // já processou
+    lastClientMsgId.current = ultima.waId || ultima.id;
+    // Dispara timer global
+    dispararTimerGlobal(active.waJid, () => convosRef.current, () => cfgForTimer.current);
+  }, [active?.messages?.length]);
+
   function iniciarTimer(waId, waJid) {
     const convo = convosRef.current?.find(c => c.waJid === waJid);
-    if (convo?.paused) return; // pausado — não processa
-    if (delayTimerRef.current) clearTimeout(delayTimerRef.current);
-    if (countdownRef.current) clearInterval(countdownRef.current);
-
-    const currentCfg = cfgRef.current;
-
-    // Digitando no WhatsApp
-    if (waJid && currentCfg.evoUrl && currentCfg.evoKey && currentCfg.instance) {
-      fetch(`/api/evo?${new URLSearchParams({
-        evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey,
-        path: `chat/presence/${currentCfg.instance}`
-      })}`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ number: waJid, options: { presence: "composing", delay: 30000 } }),
-      }).catch(() => {});
-    }
-
-    // Contador visual 45s
-    let seg = 30;
-    setCountdown(seg);
-    countdownRef.current = setInterval(() => {
-      seg -= 1;
-      setCountdown(seg > 0 ? seg : null);
-      if (seg <= 0) clearInterval(countdownRef.current);
-    }, 1000);
-
-    // Após 45s — pega msgs atuais e gera sugestão
-    delayTimerRef.current = setTimeout(() => {
-      clearInterval(countdownRef.current);
-      setCountdown(null);
-      if (!currentCfg.geminiKey) return;
-      const convo = convosRef.current?.find(c => c.waJid === waJid);
-      const msgsAtuais = convo?.messages || [];
-      if (!msgsAtuais.length) return;
-      const ultima = msgsAtuais[msgsAtuais.length - 1];
-      if (ultima?.from !== "cliente") return;
-      callGemini(currentCfg.geminiKey, msgsAtuais).then(sug => {
-        setSuggestion(sug);
-        setEditedSug(sug);
-      }).catch(() => {});
-    }, 30000);
+    if (convo?.paused) return;
+    dispararTimerGlobal(waJid, () => convosRef.current, () => cfgForTimer.current);
   }
 
   useEffect(() => {
