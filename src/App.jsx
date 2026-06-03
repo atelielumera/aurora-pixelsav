@@ -438,51 +438,52 @@ export default function App() {
           if (lastProcessedId.current === msgId) continue;
           lastProcessedId.current = msgId;
 
+          // Disparar side-effects FORA do setConvos (que deve ser pura)
+          const isNewContact = !existingConvo;
+          const currentCfg = cfgRef.current;
+          if (isNewContact && !saudacaoEnviada.current.has(from) && currentCfg.evoUrl && currentCfg.evoKey && currentCfg.instance) {
+            saudacaoEnviada.current.add(from);
+            // 1ª mensagem: saudação imediata
+            fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `message/sendText/${currentCfg.instance}` })}`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ number: from, text: SAUDACAO })
+            }).catch(() => {});
+            // 2ª mensagem: formulário de coleta após 30s
+            if (!coletaTimerRef.current[from]) {
+              coletaTimerRef.current[from] = setTimeout(() => {
+                delete coletaTimerRef.current[from];
+                const cfg2 = cfgRef.current;
+                if (!cfg2.evoUrl || !cfg2.evoKey || !cfg2.instance) return;
+                const now = new Date();
+                const tStr = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+                const msgColeta = { from: "aurora", text: COLETA_MSG, time: tStr, id: Date.now() + Math.random(), type: "text" };
+                setConvos(cs2 => cs2.map(c => c.waJid === from ? {
+                  ...c, messages: [...c.messages, msgColeta], lastMsg: "📋 Formulário de coleta enviado", time: tStr,
+                } : c));
+                fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg2.evoUrl, evoKey: cfg2.evoKey, path: `message/sendText/${cfg2.instance}` })}`, {
+                  method: "POST", headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ number: from, text: COLETA_MSG })
+                }).catch(() => {});
+              }, 30000);
+            }
+          }
+
+          const SAUDACAO_MSG = { from: "aurora", text: SAUDACAO, time: timeStr, id: Date.now() + Math.random(), type: "text" };
           setConvos(cs => {
             const existing = cs.find(c => c.waJid === from || c.phone === phone);
             if (existing) {
               if (existing.messages.some(em => em.waId === msgId)) return cs;
-              const updated = cs.map(c => c.id === existing.id ? {
+              return cs.map(c => c.id === existing.id ? {
                 ...c,
                 messages: [...c.messages, novaMsg],
                 lastMsg: text.slice(0, 40), time: timeStr,
                 unread: activeIdRef.current === c.id ? 0 : (c.unread || 0) + 1,
                 leadData: extractLead([...c.messages, novaMsg], c.leadData),
               } : c);
-              return updated;
             } else {
-              const currentCfg = cfgRef.current;
-              if (!saudacaoEnviada.current.has(from) && currentCfg.evoUrl && currentCfg.evoKey && currentCfg.instance) {
-                saudacaoEnviada.current.add(from);
-                // 1ª mensagem: saudação imediata
-                fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `message/sendText/${currentCfg.instance}` })}`, {
-                  method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ number: from, text: SAUDACAO })
-                }).catch(() => {});
-                // 2ª mensagem: formulário de coleta após 30s
-                if (!coletaTimerRef.current[from]) {
-                  coletaTimerRef.current[from] = setTimeout(() => {
-                    delete coletaTimerRef.current[from];
-                    const cfg2 = cfgRef.current;
-                    if (!cfg2.evoUrl || !cfg2.evoKey || !cfg2.instance) return;
-                    const msgColeta = { from: "aurora", text: COLETA_MSG, time: timeStr, id: Date.now() + Math.random(), type: "text" };
-                    setConvos(cs2 => cs2.map(c => c.waJid === from ? {
-                      ...c,
-                      messages: [...c.messages, msgColeta],
-                      lastMsg: "📋 Formulário de coleta enviado",
-                      time: timeStr,
-                    } : c));
-                    fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg2.evoUrl, evoKey: cfg2.evoKey, path: `message/sendText/${cfg2.instance}` })}`, {
-                      method: "POST", headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ number: from, text: COLETA_MSG })
-                    }).catch(() => {});
-                  }, 30000);
-                }
-              }
-              const msgSaudacao = { from: "aurora", text: SAUDACAO, time: timeStr, id: Date.now() + Math.random(), type: "text" };
-              setActiveId(novoId);
               const initialLead = extractLead([novaMsg], { nome: name !== phone ? name : "" });
-              return [{ id: novoId, name, phone, waJid: from, lastMsg: text.slice(0, 40), time: timeStr, unread: 0, messages: [msgSaudacao, novaMsg], leadData: initialLead, attachments: [], paused: false }, ...cs];
+              setActiveId(novoId);
+              return [{ id: novoId, name, phone, waJid: from, lastMsg: text.slice(0, 40), time: timeStr, unread: 0, messages: [SAUDACAO_MSG, novaMsg], leadData: initialLead, attachments: [], paused: false }, ...cs];
             }
           });
 
@@ -533,16 +534,22 @@ export default function App() {
     if (!cfg.geminiKey || !active) return;
     const ultima = msgs[msgs.length - 1];
     if (!ultima || ultima.from !== "cliente") return;
+    // Cancelar timer global se estiver rodando
+    if (_timerGlobal) { clearTimeout(_timerGlobal); _timerGlobal = null; }
+    if (_cdownGlobal) { clearInterval(_cdownGlobal); _cdownGlobal = null; }
+    setCountdown(null);
     setLoading(true);
     setSugError("");
     try {
       const sug = await callGemini(cfg.geminiKey, msgs);
-      if (!sug) throw new Error("Gemini retornou resposta vazia");
-      setSuggestion(sug); setEditedSug(sug);
+      if (!sug) throw new Error("Gemini retornou resposta vazia. Verifique a Gemini API Key em ⚙️");
+      setSuggestion(sug);
+      setEditedSug(sug);
     } catch (e) {
-      setSugError(e.message || "Erro ao gerar sugestão");
+      setSugError(e.message || "Erro ao conectar com Gemini. Verifique a API Key em ⚙️");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   // ── Resumo ─────────────────────────────────────────────────────────────────
@@ -1095,6 +1102,17 @@ export default function App() {
                     );
                   })}
 
+                  {/* Erro de sugestão — sempre visível quando houver */}
+                  {sugError && !suggestion && (
+                    <div style={{
+                      background: "#ef444415", border: "1px solid #ef444440", borderRadius: 10,
+                      padding: "10px 16px", marginTop: 10, color: "#ef4444", fontSize: 13,
+                      animation: "fadeUp .2s ease"
+                    }}>
+                      ❌ {sugError}
+                    </div>
+                  )}
+
                   {/* Loading Gemini após timer */}
                   {loading && !suggestion && !countdown && !active.paused && (
                     <div style={{
@@ -1164,16 +1182,11 @@ export default function App() {
 
                   {/* Botão gerar sugestão manual */}
                   {msgs.length > 0 && msgs[msgs.length - 1]?.from === "cliente" && !suggestion && countdown === null && !active.paused && cfg.geminiKey && (
-                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                    <div style={{ marginTop: 10, display: "flex", justifyContent: "center" }}>
                       <button onClick={generateManual} disabled={loading}
                         style={{ background: "#0d1f2d", border: "1px solid #00a88433", borderRadius: 8, padding: "8px 20px", color: W.green, fontSize: 13, opacity: loading ? .7 : 1 }}>
-                        {loading ? "Gerando..." : "✨ Gerar sugestão agora"}
+                        {loading ? "⏳ Gerando..." : "✨ Gerar sugestão agora"}
                       </button>
-                      {sugError && (
-                        <div style={{ color: "#ef4444", fontSize: 12, textAlign: "center", maxWidth: 320 }}>
-                          ❌ {sugError}
-                        </div>
-                      )}
                     </div>
                   )}
 
