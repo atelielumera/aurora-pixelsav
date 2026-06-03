@@ -707,3 +707,4 @@ function ResumoBox({msgs,ld,score,att,gkey}) {
     <pre style={{color:"#e9edef",fontSize:11.5,lineHeight:1.65,whiteSpace:"pre-wrap",wordBreak:"break-word",margin:0,fontFamily:"inherit"}}>{text}</pre>
   </div>;
 }
+// Ter  2 Jun 2026 23:42:39 -03
