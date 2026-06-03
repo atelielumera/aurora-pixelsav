@@ -623,7 +623,7 @@ export default function App() {
   }
 
   // ── Buscar mídia da Evolution API ─────────────────────────────────────────
-  async function fetchMedia(convoId, msgWaId, remoteJid) {
+  async function fetchMedia(convoId, msgWaId, remoteJid, msgType, fileName) {
     if (!cfg.evoUrl || !cfg.evoKey || !cfg.instance) return;
     try {
       const r = await fetch("/api/media", {
@@ -634,7 +634,20 @@ export default function App() {
       const d = await r.json();
       if (d.base64) {
         const mime = d.mimetype || "application/octet-stream";
-        const url = `data:${mime};base64,${d.base64}`;
+        const b64 = d.base64;
+        const url = `data:${mime};base64,${b64}`;
+        // Para doc: faz download imediato via Blob
+        if (msgType === "doc") {
+          const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+          const blob = new Blob([bytes], { type: mime });
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = fileName || "documento";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        }
         setConvos(cs => cs.map(c => c.id !== convoId ? c : {
           ...c,
           messages: c.messages.map(m => m.waId === msgWaId ? { ...m, url, mimeType: mime, needsMedia: false } : m)
@@ -1416,7 +1429,7 @@ export default function App() {
                             {(() => {
                               const mediaUrl = m.url || null;
                               const loadBtn = (label) => (
-                                <button onClick={() => fetchMedia(active.id, m.waId, active.waJid)}
+                                <button onClick={() => fetchMedia(active.id, m.waId, active.waJid, m.type, m.fileName)}
                                   style={{ background: W.green, border: "none", borderRadius: 8, padding: "6px 14px", color: "#fff", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
                                   ⬇ {label}
                                 </button>
