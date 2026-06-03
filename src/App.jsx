@@ -239,20 +239,13 @@ async function callGemini(apiKey, msgs) {
   if (!contents.length || contents[0].role !== "user") {
     contents.unshift({ role: "user", parts: [{ text: "início da conversa" }] });
   }
-  const r = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: AURORA_SYSTEM }] },
-        contents,
-        generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
-      })
-    }
-  );
+  const r = await fetch("/api/gemini", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ apiKey, contents, system: AURORA_SYSTEM })
+  });
   const d = await r.json();
-  if (d.error) throw new Error(d.error.message);
+  if (d.error) throw new Error(d.error);
   return d.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
 }
 
