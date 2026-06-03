@@ -48,20 +48,44 @@ TABELA VENDA:
 - R$200k–500k: sala imersiva
 - +R$500k: museus, domos, projetos especiais
 
+DADOS PRIORITÁRIOS A COLETAR (em ordem):
+1. Nome completo e empresa/organização
+2. Telefone e e-mail para contato
+3. Tipo de projeto: evento temporário OU instalação fixa
+4. Solução de interesse (do portfólio acima)
+5. Data/período do evento ou prazo de instalação
+6. Local (cidade/estado/espaço)
+7. Se temporário: período de locação (dias/semanas)
+8. Orçamento disponível (mesmo que aproximado)
+
+SE o cliente ainda não respondeu o formulário de coleta enviado automaticamente, foque em obter essas respostas antes de qualquer outra coisa.
+
 REGRAS CRÍTICAS:
 - Tom WhatsApp: direto, caloroso, máximo 3 linhas por mensagem
-- Nunca mais de 1 pergunta por vez
+- Nunca mais de 1 pergunta por vez (exceto no formulário inicial automático)
 - Nunca inventar preços — usar "a partir de X"
 - Nunca sugerir acima da faixa declarada pelo cliente
 - Sem orçamento declarado → não sugerir solução específica
-- Coletar progressivamente: nome, empresa, tipo (evento/instalação), prazo, orçamento, local
 - Sempre terminar com pergunta ou próximo passo claro
 - Máximo 1 emoji por mensagem
 - Tom consultivo, empático, nunca robótico
 
-FLUXO: Descoberta → Qualificação (PF/PJ) → Locação ou Venda → Orçamento → Apresentação → Próximo passo
+FLUXO: Coleta de dados → Qualificação (PF/PJ) → Locação ou Venda → Orçamento → Apresentação → Próximo passo
 
 RESPONDA APENAS o texto da mensagem. Sem prefixos. Sem explicações. Texto puro.`;
+
+// ─── MENSAGEM DE COLETA DE DADOS (enviada automaticamente 30s após saudação) ──
+const COLETA_MSG = `Para preparar a melhor proposta para você, preciso de algumas informações rápidas 📋
+
+*1.* Seu nome completo e empresa/organização?
+*2.* É para um *evento temporário* ou *instalação fixa*?
+*3.* Qual solução te interessa? (Projeção Mapeada, RA, Holografia, Sala Imersiva...)
+*4.* Data prevista e local do projeto (cidade/estado)?
+*5.* Se temporário, qual o período de locação?
+*6.* Qual o orçamento disponível (mesmo que aproximado)?
+*7.* Telefone e e-mail para contato?
+
+Pode responder no seu tempo, sem pressa! 😊`;
 
 // ─── LEAD SCORE ───────────────────────────────────────────────────────────────
 function scoreCalc(ld) {
@@ -222,6 +246,7 @@ export default function App() {
   const [resumoSending, setResumoSending] = useState(false);
   const [resumoErr, setResumoErr] = useState("");
   const [showResumo, setShowResumo] = useState(false);
+  const [sugError, setSugError] = useState("");
 
   const [showLead, setShowLead] = useState(false);
   const [lightbox, setLightbox] = useState(null);
@@ -234,6 +259,7 @@ export default function App() {
   const [waQr, setWaQr] = useState("");
   const [waConnectedName, setWaConnectedName] = useState("");
   const waPollingQrRef = useRef(null);
+  const coletaTimerRef = useRef({});
 
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
@@ -340,10 +366,30 @@ export default function App() {
               const currentCfg = cfgRef.current;
               if (!saudacaoEnviada.current.has(from) && currentCfg.evoUrl && currentCfg.evoKey && currentCfg.instance) {
                 saudacaoEnviada.current.add(from);
+                // 1ª mensagem: saudação imediata
                 fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `message/sendText/${currentCfg.instance}` })}`, {
                   method: "POST", headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ number: from, text: SAUDACAO })
                 }).catch(() => {});
+                // 2ª mensagem: formulário de coleta após 30s
+                if (!coletaTimerRef.current[from]) {
+                  coletaTimerRef.current[from] = setTimeout(() => {
+                    delete coletaTimerRef.current[from];
+                    const cfg2 = cfgRef.current;
+                    if (!cfg2.evoUrl || !cfg2.evoKey || !cfg2.instance) return;
+                    const msgColeta = { from: "aurora", text: COLETA_MSG, time: timeStr, id: Date.now() + Math.random(), type: "text" };
+                    setConvos(cs2 => cs2.map(c => c.waJid === from ? {
+                      ...c,
+                      messages: [...c.messages, msgColeta],
+                      lastMsg: "📋 Formulário de coleta enviado",
+                      time: timeStr,
+                    } : c));
+                    fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg2.evoUrl, evoKey: cfg2.evoKey, path: `message/sendText/${cfg2.instance}` })}`, {
+                      method: "POST", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ number: from, text: COLETA_MSG })
+                    }).catch(() => {});
+                  }, 30000);
+                }
               }
               const msgSaudacao = { from: "aurora", text: SAUDACAO, time: timeStr, id: Date.now() + Math.random(), type: "text" };
               setActiveId(novoId);
@@ -399,10 +445,14 @@ export default function App() {
     const ultima = msgs[msgs.length - 1];
     if (!ultima || ultima.from !== "cliente") return;
     setLoading(true);
+    setSugError("");
     try {
       const sug = await callGemini(cfg.geminiKey, msgs);
+      if (!sug) throw new Error("Gemini retornou resposta vazia");
       setSuggestion(sug); setEditedSug(sug);
-    } catch {}
+    } catch (e) {
+      setSugError(e.message || "Erro ao gerar sugestão");
+    }
     setLoading(false);
   }
 
@@ -801,7 +851,7 @@ export default function App() {
               const isActive = c.id === activeId;
               return (
                 <div key={c.id}
-                  onClick={() => { setActiveId(c.id); updateConvo(c.id, { unread: 0 }); setSuggestion(null); setEditedSug(""); setCountdown(null); setShowResumo(false); }}
+                  onClick={() => { setActiveId(c.id); updateConvo(c.id, { unread: 0 }); setSuggestion(null); setEditedSug(""); setCountdown(null); setShowResumo(false); setSugError(""); }}
                   style={{
                     display: "flex", alignItems: "center", padding: "12px 16px", gap: 12,
                     background: isActive ? W.active : "transparent", cursor: "pointer",
@@ -1025,11 +1075,16 @@ export default function App() {
 
                   {/* Botão gerar sugestão manual */}
                   {msgs.length > 0 && msgs[msgs.length - 1]?.from === "cliente" && !suggestion && countdown === null && !active.paused && cfg.geminiKey && (
-                    <div style={{ marginTop: 10, display: "flex", justifyContent: "center" }}>
+                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                       <button onClick={generateManual} disabled={loading}
                         style={{ background: "#0d1f2d", border: "1px solid #00a88433", borderRadius: 8, padding: "8px 20px", color: W.green, fontSize: 13, opacity: loading ? .7 : 1 }}>
                         {loading ? "Gerando..." : "✨ Gerar sugestão agora"}
                       </button>
+                      {sugError && (
+                        <div style={{ color: "#ef4444", fontSize: 12, textAlign: "center", maxWidth: 320 }}>
+                          ❌ {sugError}
+                        </div>
+                      )}
                     </div>
                   )}
 
