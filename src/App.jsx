@@ -450,8 +450,8 @@ export default function App() {
     try {
       const toSave = convos.map(c => ({
         ...c,
-        messages: c.messages.map(m => ({ ...m, url: m.type === "image" ? m.url : undefined })),
-        attachments: (c.attachments || []).map(a => ({ ...a, base64: undefined, url: undefined })),
+        messages: c.messages.map(m => ({ ...m })),
+        attachments: (c.attachments || []).map(a => ({ ...a })),
       }));
       localStorage.setItem("aurora_convos", JSON.stringify(toSave));
     } catch {}
@@ -1412,9 +1412,11 @@ export default function App() {
                                 </div>
                               </div>
                             ) : m.type === "audio" ? (
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, color: W.text, fontSize: 13 }}>
-                                <span style={{ fontSize: 18 }}>🎤</span>
-                                <span>{m.text || "[áudio]"}</span>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                {m.url
+                                  ? <audio controls src={m.url} style={{ maxWidth: 220, height: 36 }} />
+                                  : <div style={{ display: "flex", alignItems: "center", gap: 6, color: W.text, fontSize: 13 }}><span style={{ fontSize: 18 }}>🎤</span><span>{m.text || "[áudio]"}</span></div>
+                                }
                               </div>
                             ) : (
                               <div style={{ color: W.text, fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.text}</div>
