@@ -288,7 +288,7 @@ export default function App() {
   const fileRef=useRef(null);
   const waPollingRef=useRef(null);
   const seenIds=useRef(new Set());
-  const saudacaoEnviada=useRef(new Set()); // números que já receberam saudação
+  const saudacaoEnviada=useRef(new Set()); // v2 // números que já receberam saudação
   const cfgRef=useRef(cfg);
   const convosRef=useRef(convos);
   const activeIdRef=useRef(activeId);
