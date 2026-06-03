@@ -318,6 +318,7 @@ function WhatsAppPanel({ cfg, onSaveInstance, onClose }) {
       const r = await fetch(`${cfg.evoUrl}/instance/connectionState/${name}`, {
         headers: { apikey: cfg.evoKey },
       });
+      if (!r.ok) { setStatus("idle"); return; }
       const data = await r.json();
       const state = data.instance?.state || data.state;
       if (state === "open") { setStatus("connected"); }
