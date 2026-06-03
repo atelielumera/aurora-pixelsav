@@ -513,7 +513,7 @@ export default function App() {
     try {
       const res = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `instance/create` })}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instanceName, token: cfg.evoKey, qrcode: true })
+        body: JSON.stringify({ instanceName, qrcode: true, integration: "WHATSAPP-BAILEYS" })
       });
       if (!res.ok && res.status !== 409) {
         const err = await res.json().catch(() => ({}));
