@@ -611,12 +611,11 @@ export default function App() {
         const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: c.evoUrl, evoKey: c.evoKey, path: `instance/connectionState/${c.instance}` })}`);
         const d = await r.json().catch(() => ({}));
         const state = d?.instance?.state || d?.state || d?.instance?.connectionStatus || d?.connectionStatus || "";
-        if (state !== "open") {
-          // Tentar reconectar silenciosamente
-          await fetch(`/api/evo?${new URLSearchParams({ evoUrl: c.evoUrl, evoKey: c.evoKey, path: `instance/connect/${c.instance}` })}`);
-        }
+        // Apenas monitorar — NÃO chamar connect() pois derruba a instância
+        if (state === "open") setWebhookStatus("ok");
+        else setWebhookStatus("error");
       } catch {}
-    }, 120000);
+    }, 60000);
 
     return () => { clearInterval(waPollingRef.current); clearInterval(keepalive); };
   }, []);
