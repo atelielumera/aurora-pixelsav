@@ -1012,7 +1012,7 @@ export default function App() {
         {/* ── TOP NAV BAR ──────────────────────────────────────────────────── */}
         <div style={{ height: 48, background: W.leftHdr, display: "flex", alignItems: "center", padding: "0 16px", gap: 8, flexShrink: 0, borderBottom: `1px solid ${W.divider}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
-            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "linear-gradient(135deg,#00a884,#005c4b)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 14 }}>A</div>
+            <img src="/logo.svg" alt="PixelSAV" style={{ width: 32, height: 32 }} />
             <span style={{ color: W.text, fontWeight: 700, fontSize: 15 }}>Aurora · PixelSAV</span>
             <span style={{ marginLeft: 4, fontSize: 9, color: webhookStatus === "ok" ? W.green : "#ef4444" }}>{webhookStatus === "ok" ? "● online" : "● erro"}</span>
           </div>
