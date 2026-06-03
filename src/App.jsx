@@ -864,12 +864,12 @@ export default function App() {
           {/* Header esquerdo */}
           <div style={{ height: 60, background: W.leftHdr, display: "flex", alignItems: "center", padding: "0 16px", gap: 10, flexShrink: 0 }}>
             <div style={{
-              width: 40, height: 40, borderRadius: "50%", background: avatarColor("Denise"),
+              width: 40, height: 40, borderRadius: "50%", background: "linear-gradient(135deg,#00a884,#005c4b)",
               display: "flex", alignItems: "center", justifyContent: "center",
               color: "#fff", fontWeight: 700, fontSize: 16, flexShrink: 0
-            }}>D</div>
+            }}>A</div>
             <div style={{ flex: 1, color: W.text, fontWeight: 600, fontSize: 15 }}>
-              Denise · PixelSAV
+              Aurora · PixelSAV
               <span style={{ marginLeft: 6, fontSize: 9, color: webhookStatus === "ok" ? W.green : "#ef4444" }}>
                 {webhookStatus === "ok" ? "● online" : "● erro"}
               </span>
