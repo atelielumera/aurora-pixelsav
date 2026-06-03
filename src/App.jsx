@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 // ─── CORES ───────────────────────────────────────────────────────────────────
 const W = {
@@ -219,6 +219,7 @@ export default function App() {
 
   const [showLead, setShowLead] = useState(false);
   const [lightbox, setLightbox] = useState(null);
+  const [waError, setWaError] = useState("");
 
   // WA panel state
   const [waState, setWaState] = useState("form"); // form | loading | qr | connected
@@ -250,7 +251,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    try { const s = localStorage.getItem("aurora_cfg"); if (s) setCfg(JSON.parse(s)); } catch {}
+    try {
+      const s = localStorage.getItem("aurora_cfg");
+      if (s) {
+        const saved = JSON.parse(s);
+        setCfg(saved);
+        if (saved.instance) setWaInstanceInput(saved.instance);
+      }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -459,26 +467,34 @@ export default function App() {
   function handleFile(e) {
     const file = e.target.files?.[0];
     if (!file || !active) return;
+    const targetId = activeId;
     const reader = new FileReader();
     reader.onload = (ev) => {
       const base64 = ev.target.result.split(",")[1];
+      const attType = file.type.startsWith("image/") ? "image" : "doc";
       const att = {
         id: Date.now(),
         fileName: file.name,
         mimeType: file.type,
         base64,
-        type: file.type.startsWith("image/") ? "image" : "doc",
+        type: attType,
         size: file.size,
         url: ev.target.result,
       };
-      updateConvo(activeId, { attachments: [...(active.attachments || []), att] });
       const msg = {
-        from: "cliente", type: att.type,
-        text: att.type === "image" ? `🖼 ${file.name}` : `📎 ${file.name}`,
+        from: "cliente", type: attType,
+        text: attType === "image" ? `🖼 ${file.name}` : `📎 ${file.name}`,
         time: ts(), id: Date.now() + Math.random(),
-        url: ev.target.result, fileName: file.name,
+        url: ev.target.result, fileName: file.name, size: file.size,
       };
-      updateConvo(activeId, { messages: [...msgs, msg], lastMsg: msg.text.slice(0, 40), time: ts() });
+      // Usar setConvos funcional para evitar msgs/attachments stale
+      setConvos(cs => cs.map(c => c.id === targetId ? {
+        ...c,
+        attachments: [...(c.attachments || []), att],
+        messages: [...c.messages, msg],
+        lastMsg: msg.text.slice(0, 40),
+        time: ts(),
+      } : c));
     };
     reader.readAsDataURL(file);
     e.target.value = "";
@@ -488,19 +504,23 @@ export default function App() {
   async function createInstance() {
     if (!waInstanceInput.trim() || !cfg.evoUrl || !cfg.evoKey) return;
     setWaState("loading");
+    setWaError("");
     const instanceName = waInstanceInput.trim();
-    // salva o nome da instância em cfg para refreshQr poder usar
     const newCfg = { ...cfg, instance: instanceName };
     setCfg(newCfg);
     cfgRef.current = newCfg;
     try { localStorage.setItem("aurora_cfg", JSON.stringify(newCfg)); } catch {}
     try {
-      await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `instance/create` })}`, {
+      const res = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `instance/create` })}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ instanceName, token: cfg.evoKey, qrcode: true })
       });
+      if (!res.ok && res.status !== 409) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || err.error || `Erro ${res.status}`);
+      }
       await refreshQrFor(instanceName, newCfg);
-    } catch { setWaState("form"); }
+    } catch (e) { setWaError(e.message); setWaState("form"); }
   }
 
   async function refreshQr() {
@@ -593,7 +613,7 @@ export default function App() {
       {showWA && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ background: "#202c33", borderRadius: 16, width: 400, padding: 32, position: "relative" }}>
-            <button onClick={() => setShowWA(false)} style={{ position: "absolute", top: 12, right: 16, background: "none", border: "none", color: W.sub, fontSize: 20, cursor: "pointer" }}>✕</button>
+            <button onClick={() => { setShowWA(false); setWaError(""); }} style={{ position: "absolute", top: 12, right: 16, background: "none", border: "none", color: W.sub, fontSize: 20, cursor: "pointer" }}>✕</button>
             <div style={{ fontWeight: 700, color: W.text, fontSize: 18, marginBottom: 20 }}>📱 WhatsApp</div>
 
             {waState === "form" && (
@@ -601,6 +621,11 @@ export default function App() {
                 {(!cfg.evoUrl || !cfg.evoKey) && (
                   <div style={{ background: "#ef444415", border: "1px solid #ef444440", borderRadius: 8, padding: "10px 12px", color: "#ef4444", fontSize: 13 }}>
                     ⚠️ Preencha Evolution URL e API Key em ⚙️ primeiro.
+                  </div>
+                )}
+                {waError && (
+                  <div style={{ background: "#ef444415", border: "1px solid #ef444440", borderRadius: 8, padding: "10px 12px", color: "#ef4444", fontSize: 13 }}>
+                    ❌ {waError}
                   </div>
                 )}
                 <input value={waInstanceInput} onChange={e => setWaInstanceInput(e.target.value)}
@@ -733,7 +758,7 @@ export default function App() {
               const isActive = c.id === activeId;
               return (
                 <div key={c.id}
-                  onClick={() => { setActiveId(c.id); updateConvo(c.id, { unread: 0 }); setSuggestion(null); setEditedSug(""); setShowResumo(false); }}
+                  onClick={() => { setActiveId(c.id); updateConvo(c.id, { unread: 0 }); setSuggestion(null); setEditedSug(""); setCountdown(null); setShowResumo(false); }}
                   style={{
                     display: "flex", alignItems: "center", padding: "12px 16px", gap: 12,
                     background: isActive ? W.active : "transparent", cursor: "pointer",
@@ -825,7 +850,7 @@ export default function App() {
                     const isCliente = m.from === "cliente";
                     const prev = msgs[i - 1];
                     const showAvatar = !prev || prev.from !== m.from;
-                    const showDate = !prev || Math.floor((m.id || 0) / 86400) !== Math.floor(((prev.id || 0)) / 86400);
+                    const showDate = !prev || Math.floor((m.id || 0) / 86400000) !== Math.floor(((prev.id || 0)) / 86400000);
 
                     return (
                       <React.Fragment key={m.id || i}>

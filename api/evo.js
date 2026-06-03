@@ -6,7 +6,7 @@ export default async function handler(req, res) {
   const { evoUrl, evoKey, path } = req.query;
   if (!evoUrl || !evoKey || !path) { res.status(400).json({ error: "Missing params" }); return; }
   try {
-    const r = await fetch(`${evoUrl}/${path}`, {
+    const r = await fetch(`${evoUrl.replace(/\/$/, "")}/${path}`, {
       method: req.method,
       headers: { "Content-Type": "application/json", apikey: evoKey },
       body: req.method !== "GET" && req.method !== "DELETE" && req.body ? JSON.stringify(req.body) : undefined,
