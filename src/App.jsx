@@ -437,7 +437,10 @@ export default function App() {
           const text = m.text || "[mídia]";
           const msgTime = m.timestamp ? new Date(m.timestamp * 1000) : new Date();
           const timeStr = `${String(msgTime.getHours()).padStart(2,"0")}:${String(msgTime.getMinutes()).padStart(2,"0")}`;
-          const novaMsg = { from: "cliente", text, time: timeStr, id: Date.now() + Math.random(), type, waId: msgId };
+          const mediaUrl = m.mediaBase64
+            ? `data:${m.mimeType || (type === "image" ? "image/jpeg" : "application/octet-stream")};base64,${m.mediaBase64}`
+            : null;
+          const novaMsg = { from: "cliente", text, time: timeStr, id: Date.now() + Math.random(), type, waId: msgId, url: mediaUrl, fileName: m.fileName || null };
 
           const existingConvo = convosRef.current.find(c => c.waJid === from || c.phone === phone);
           const novoId = Date.now() + Math.random();
@@ -1087,6 +1090,12 @@ export default function App() {
                                 <div>
                                   <div style={{ color: W.text, fontSize: 13 }}>{m.fileName || m.text}</div>
                                   {m.size && <div style={{ color: W.sub, fontSize: 11 }}>{(m.size / 1024).toFixed(1)} KB</div>}
+                                  {m.url && (
+                                    <a href={m.url} download={m.fileName || "documento"}
+                                      style={{ color: W.green, fontSize: 12, textDecoration: "none" }}>
+                                      ⬇ Baixar
+                                    </a>
+                                  )}
                                 </div>
                               </div>
                             ) : m.type === "audio" ? (

@@ -49,11 +49,23 @@ export default async function handler(req, res) {
     const remoteJid = key?.remoteJid || "";
     if (!remoteJid || remoteJid.includes("@g.us")) { res.status(200).json({ ok: true }); return; }
     const msg = data?.message || {};
-    let type = "text", text = "";
+    let type = "text", text = "", mediaBase64 = null, fileName = null, mimeType = null;
     if (msg.conversation) { type = "text"; text = msg.conversation; }
     else if (msg.extendedTextMessage?.text) { type = "text"; text = msg.extendedTextMessage.text; }
-    else if (msg.imageMessage) { type = "image"; text = msg.imageMessage.caption || "🖼 imagem"; }
-    else if (msg.documentMessage) { type = "doc"; text = `📎 ${msg.documentMessage.fileName || "documento"}`; }
+    else if (msg.imageMessage) {
+      type = "image";
+      text = msg.imageMessage.caption || "🖼 imagem";
+      fileName = "imagem.jpg";
+      mimeType = msg.imageMessage.mimetype || "image/jpeg";
+      mediaBase64 = msg.imageMessage.base64 || null;
+    }
+    else if (msg.documentMessage) {
+      type = "doc";
+      fileName = msg.documentMessage.fileName || "documento";
+      text = `📎 ${fileName}`;
+      mimeType = msg.documentMessage.mimetype || "application/octet-stream";
+      mediaBase64 = msg.documentMessage.base64 || null;
+    }
     else if (msg.audioMessage || msg.pttMessage) { type = "audio"; text = "🎤 áudio"; }
     else { type = "text"; text = "[mensagem]"; }
 
@@ -61,7 +73,7 @@ export default async function handler(req, res) {
       id: key?.id || `${Date.now()}`,
       remoteJid,
       pushName: data?.pushName || remoteJid.split("@")[0],
-      text, type,
+      text, type, mediaBase64, fileName, mimeType,
       timestamp: data?.messageTimestamp || Math.floor(Date.now() / 1000),
       receivedAt: Date.now(),
     });
