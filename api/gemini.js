@@ -9,34 +9,8 @@ export default async function handler(req, res) {
   if (!apiKey || !contents) { res.status(400).json({ error: "Missing apiKey or contents" }); return; }
 
   try {
-    // Buscar modelos disponíveis na conta
-    const listRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
-    );
-    const listData = await listRes.json();
-    if (listData.error) {
-      res.status(400).json({ error: listData.error?.message || JSON.stringify(listData.error) });
-      return;
-    }
-
-    // Filtrar modelos que suportam generateContent, preferindo flash
-    const models = (listData.models || [])
-      .filter(m => m.supportedGenerationMethods?.includes("generateContent"))
-      .map(m => m.name.replace("models/", ""))
-      .sort((a, b) => {
-        const score = (n) => n.includes("2.0") ? 3 : n.includes("2.5") ? 4 : n.includes("1.5") ? 2 : 1;
-        return score(b) - score(a);
-      });
-
-    if (!models.length) {
-      res.status(400).json({ error: "Nenhum modelo Gemini disponível nesta API Key" });
-      return;
-    }
-
-    // Tentar o primeiro modelo disponível
-    const model = models[0];
     const r = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
