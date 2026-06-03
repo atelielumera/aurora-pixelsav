@@ -517,7 +517,8 @@ export default function App() {
           const mediaUrl = m.mediaBase64
             ? `data:${m.mimeType || (type === "image" ? "image/jpeg" : "application/octet-stream")};base64,${m.mediaBase64}`
             : null;
-          const novaMsg = { from: "cliente", text, time: timeStr, id: Date.now() + Math.random(), type, waId: msgId, url: mediaUrl, fileName: m.fileName || null };
+          const isMedia = ["image","doc","audio"].includes(type);
+          const novaMsg = { from: "cliente", text, time: timeStr, id: Date.now() + Math.random(), type, waId: msgId, url: mediaUrl, fileName: m.fileName || null, mimeType: m.mimeType || null, needsMedia: isMedia && !mediaUrl };
 
           const existingConvo = convosRef.current.find(c => c.waJid === from || c.phone === phone);
           const novoId = Date.now() + Math.random();
@@ -619,6 +620,27 @@ export default function App() {
       } catch (e) { console.warn("Falha ao enviar:", e); }
     }
     setSending(false);
+  }
+
+  // ── Buscar mídia da Evolution API ─────────────────────────────────────────
+  async function fetchMedia(convoId, msgWaId, remoteJid) {
+    if (!cfg.evoUrl || !cfg.evoKey || !cfg.instance) return;
+    try {
+      const r = await fetch("/api/media", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, instance: cfg.instance, messageId: msgWaId, remoteJid })
+      });
+      const d = await r.json();
+      if (d.base64) {
+        const mime = d.mimetype || "application/octet-stream";
+        const url = `data:${mime};base64,${d.base64}`;
+        setConvos(cs => cs.map(c => c.id !== convoId ? c : {
+          ...c,
+          messages: c.messages.map(m => m.waId === msgWaId ? { ...m, url, mimeType: mime, needsMedia: false } : m)
+        }));
+      }
+    } catch {}
   }
 
   // ── Copiar sugestão ────────────────────────────────────────────────────────
@@ -1392,25 +1414,34 @@ export default function App() {
                             padding: "7px 10px",
                           }}>
                             {(() => {
-                              const mediaUrl = m.url || (m.mediaBase64 ? `data:${m.mimeType || (m.type === "image" ? "image/jpeg" : m.type === "audio" ? "audio/ogg" : "application/octet-stream")};base64,${m.mediaBase64}` : null);
+                              const mediaUrl = m.url || null;
+                              const loadBtn = (label) => (
+                                <button onClick={() => fetchMedia(active.id, m.waId, active.waJid)}
+                                  style={{ background: W.green, border: "none", borderRadius: 8, padding: "6px 14px", color: "#fff", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                                  ⬇ {label}
+                                </button>
+                              );
                               if (m.type === "image") return mediaUrl ? (
                                 <div>
                                   <img src={mediaUrl} alt={m.fileName} onClick={() => setLightbox(mediaUrl)}
                                     style={{ maxWidth: 220, maxHeight: 180, borderRadius: 6, cursor: "pointer", display: "block", marginBottom: 4 }} />
                                   {m.fileName && <div style={{ color: W.sub, fontSize: 11 }}>{m.fileName}</div>}
                                 </div>
-                              ) : <div style={{ color: W.sub, fontSize: 13 }}>🖼 {m.text || "imagem"}</div>;
+                              ) : (
+                                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                  <div style={{ color: W.sub, fontSize: 13 }}>🖼 {m.text || "imagem"}</div>
+                                  {m.waId && loadBtn("Ver imagem")}
+                                </div>
+                              );
                               if (m.type === "doc") return (
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                   <span style={{ fontSize: 28 }}>📄</span>
-                                  <div>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                                     <div style={{ color: W.text, fontSize: 13 }}>{m.fileName || m.text}</div>
-                                    {mediaUrl && (
-                                      <a href={mediaUrl} download={m.fileName || "documento"}
-                                        style={{ color: W.green, fontSize: 12, textDecoration: "none" }}>
-                                        ⬇ Baixar
-                                      </a>
-                                    )}
+                                    {mediaUrl
+                                      ? <a href={mediaUrl} download={m.fileName || "documento"} style={{ color: W.green, fontSize: 12, textDecoration: "none" }}>⬇ Baixar</a>
+                                      : m.waId && loadBtn("Baixar")
+                                    }
                                   </div>
                                 </div>
                               );
@@ -1418,7 +1449,10 @@ export default function App() {
                                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                                   {mediaUrl
                                     ? <audio controls src={mediaUrl} style={{ maxWidth: 220, height: 36 }} />
-                                    : <div style={{ display: "flex", alignItems: "center", gap: 6, color: W.text, fontSize: 13 }}><span style={{ fontSize: 18 }}>🎤</span><span>{m.text || "[áudio]"}</span></div>
+                                    : <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                        <span style={{ fontSize: 18 }}>🎤</span>
+                                        {m.waId && loadBtn("Ouvir áudio")}
+                                      </div>
                                   }
                                 </div>
                               );
