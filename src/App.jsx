@@ -554,23 +554,71 @@ export default function AuroraAgent() {
   const cfgRef = useRef(cfg);
   useEffect(() => { cfgRef.current = cfg; }, [cfg]);
 
-  // Intervalo que verifica sugestão pendente a cada 500ms
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!pendingSuggestion.current) return;
-      const { msgs } = pendingSuggestion.current;
-      // Só propõe se a última mensagem for do cliente
-      const ultimaMsg = msgs[msgs.length - 1];
-      if (!ultimaMsg || ultimaMsg.from !== "cliente") return;
-      pendingSuggestion.current = null;
-      const currentCfg = cfgRef.current;
-      if (!currentCfg.geminiKey) return;
+  // Timer de 45s — reinicia a cada mensagem nova do cliente
+  // Mostra "digitando..." no WhatsApp enquanto processa
+  const delayTimerRef = useRef(null);
+  const [processingCountdown, setProcessingCountdown] = useState(null);
+  const countdownRef = useRef(null);
+
+  function agendarSugestao(msgs) {
+    // Cancela timer anterior — reinicia contagem
+    if (delayTimerRef.current) clearTimeout(delayTimerRef.current);
+    if (countdownRef.current) clearInterval(countdownRef.current);
+
+    const ultimaMsg = msgs[msgs.length - 1];
+    if (!ultimaMsg || ultimaMsg.from !== "cliente") return;
+
+    const currentCfg = cfgRef.current;
+    if (!currentCfg.geminiKey) return;
+
+    // Mostra contador regressivo na tela
+    let segundos = 45;
+    setProcessingCountdown(segundos);
+    countdownRef.current = setInterval(() => {
+      segundos -= 1;
+      setProcessingCountdown(segundos);
+      if (segundos <= 0) clearInterval(countdownRef.current);
+    }, 1000);
+
+    // Ativa "digitando..." no WhatsApp
+    const waJid = msgs[0]?.waId ? null : null; // pega do convo ativo via ref
+    const convoAtivo = convosRef.current?.find(c => c.messages.some(m => m.waId === ultimaMsg.waId));
+    if (convoAtivo?.waJid && currentCfg.evoUrl && currentCfg.evoKey && currentCfg.instance) {
+      fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `chat/presence/${currentCfg.instance}` })}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ number: convoAtivo.waJid, options: { presence: "composing", delay: 45000 } }),
+      }).catch(() => {});
+    }
+
+    // Após 45s processa e propõe
+    delayTimerRef.current = setTimeout(() => {
+      clearInterval(countdownRef.current);
+      setProcessingCountdown(null);
       setSuggestion(null); setEditedSug("");
       callGemini(currentCfg.geminiKey, msgs).then(sug => {
         setSuggestion(sug); setEditedSug(sug);
       }).catch(() => {});
+    }, 45000);
+  }
+
+  // Ref para acessar convos dentro do timer
+  const convosRef = useRef(convos);
+  useEffect(() => { convosRef.current = convos; }, [convos]);
+
+  // Processa pendingSuggestion via intervalo
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!pendingSuggestion.current) return;
+      const { msgs } = pendingSuggestion.current;
+      pendingSuggestion.current = null;
+      agendarSugestao(msgs);
     }, 500);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (delayTimerRef.current) clearTimeout(delayTimerRef.current);
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -621,7 +669,7 @@ export default function AuroraAgent() {
               const newMsgs = [...existing.messages, novaMsg];
               // Ativa conversa e agenda sugestão
               setActiveId(existing.id);
-              pendingSuggestion.current = { msgs: newMsgs, isNovo: false };
+              pendingSuggestion.current = { msgs: newMsgs };
               return cs.map(c => c.id === existing.id ? {
                 ...c, messages: newMsgs,
                 lastMsg: text.slice(0,40), time: timeStr, unread: (c.unread||0)+1,
@@ -641,9 +689,9 @@ export default function AuroraAgent() {
               }
               const msgSaudacao = { from:"aurora", text: saudacao, time: timeStr, id: Date.now()+Math.random(), type:"text" };
               const msgsComSaudacao = [msgSaudacao, novaMsg];
-              // Ativa a conversa e agenda sugestão
+              // Ativa a conversa e agenda sugestão após saudação
               setActiveId(novoId);
-              pendingSuggestion.current = { msgs: msgsComSaudacao, isNovo: true };
+              pendingSuggestion.current = { msgs: msgsComSaudacao };
               return [{ id:novoId, name, phone, waJid:from, lastMsg:text.slice(0,40), time:timeStr, unread:1,
                 messages:msgsComSaudacao, leadData:{}, attachments:[] }, ...cs];
             }
