@@ -1439,7 +1439,17 @@ export default function App() {
                                   <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                                     <div style={{ color: W.text, fontSize: 13 }}>{m.fileName || m.text}</div>
                                     {mediaUrl
-                                      ? <a href={mediaUrl} download={m.fileName || "documento"} style={{ color: W.green, fontSize: 12, textDecoration: "none" }}>⬇ Baixar</a>
+                                      ? <button onClick={() => {
+                                          const mime = m.mimeType || "application/octet-stream";
+                                          const b64 = mediaUrl.split(",")[1];
+                                          const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+                                          const blob = new Blob([bytes], { type: mime });
+                                          const a = document.createElement("a");
+                                          a.href = URL.createObjectURL(blob);
+                                          a.download = m.fileName || "documento";
+                                          a.click();
+                                          URL.revokeObjectURL(a.href);
+                                        }} style={{ background: "none", border: "none", color: W.green, fontSize: 12, cursor: "pointer", padding: 0 }}>⬇ Baixar</button>
                                       : m.waId && loadBtn("Baixar")
                                     }
                                   </div>
