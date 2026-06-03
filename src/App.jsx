@@ -340,12 +340,30 @@ function WhatsAppPanel({ cfg, onSaveInstance, onClose }) {
     if (!cfg.evoUrl || !cfg.evoKey) { setErr("Salve a Evolution API URL e API Key em ⚙️ primeiro."); return; }
     setErr(""); setStep("loading"); setQrCode(null);
     try {
+      // 1. Verifica se já está conectada
+      const already = await verificarConectado(name);
+      if (already) {
+        try { localStorage.setItem("aurora_wa_instance", name); } catch {}
+        onSaveInstance(name);
+        setStep("connected");
+        return;
+      }
+      // 2. Tenta criar (ignora se já existir)
       await fetch(`${cfg.evoUrl}/instance/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: cfg.evoKey },
         body: JSON.stringify({ instanceName: name, qrcode: true, integration: "WHATSAPP-BAILEYS" }),
       });
       await new Promise(r => setTimeout(r, 2000));
+      // 3. Verifica de novo se conectou após criar
+      const alreadyAfter = await verificarConectado(name);
+      if (alreadyAfter) {
+        try { localStorage.setItem("aurora_wa_instance", name); } catch {}
+        onSaveInstance(name);
+        setStep("connected");
+        return;
+      }
+      // 4. Busca QR Code
       const qr = await buscarQR(name);
       if (qr) {
         setStep("qr");
