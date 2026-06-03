@@ -23,6 +23,18 @@ const GLOBAL_CSS = `
   textarea { resize: none; font-family: inherit; }
   button { cursor: pointer; font-family: inherit; }
   input { font-family: inherit; }
+  .chat-layout { display: flex; flex: 1; overflow: hidden; }
+  .col-left { width: 360px; min-width: 360px; display: flex; flex-direction: column; background: #111b21; border-right: 1px solid #2a3942; }
+  .col-right { flex: 1; display: flex; flex-direction: column; background: #0b141a; position: relative; }
+  @media (max-width: 700px) {
+    .chat-layout { position: relative; }
+    .col-left { width: 100%; min-width: 0; position: absolute; inset: 0; z-index: 2; transition: transform .25s; }
+    .col-left.hidden { transform: translateX(-100%); pointer-events: none; }
+    .col-right { width: 100%; position: absolute; inset: 0; z-index: 1; }
+    .col-right.hidden { display: none; }
+    .lead-panel { display: none !important; }
+    .mobile-back { display: block !important; }
+  }
 `;
 
 // ─── AURORA SYSTEM PROMPT ─────────────────────────────────────────────────────
@@ -349,6 +361,7 @@ export default function App() {
   const [showCfg, setShowCfg] = useState(false);
   const [showWA, setShowWA] = useState(false);
   const [mainView, setMainView] = useState("chat"); // "chat" | "crm"
+  const [mobilePanel, setMobilePanel] = useState("list"); // "list" | "chat"
   const [crmSearch, setCrmSearch] = useState("");
   const [crmProduto, setCrmProduto] = useState("");
   const [crmTag, setCrmTag] = useState("");
@@ -1153,10 +1166,10 @@ export default function App() {
 
         {/* ── CHAT VIEW ────────────────────────────────────────────────────── */}
         {mainView === "chat" && (
-        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        <div className="chat-layout">
 
         {/* ── COLUNA ESQUERDA ─────────────────────────────────────────────── */}
-        <div style={{ width: 360, minWidth: 360, display: "flex", flexDirection: "column", background: W.leftBg, borderRight: `1px solid ${W.divider}` }}>
+        <div className={`col-left${mobilePanel === "chat" ? " hidden" : ""}`}>
 
           {/* Header esquerdo */}
           <div style={{ height: 60, background: W.leftHdr, display: "flex", alignItems: "center", padding: "0 16px", gap: 10, flexShrink: 0 }}>
@@ -1243,7 +1256,7 @@ export default function App() {
               const isActive = c.id === activeId;
               return (
                 <div key={c.id}
-                  onClick={() => { setActiveId(c.id); updateConvo(c.id, { unread: 0 }); setSuggestion(null); setEditedSug(""); setCountdown(null); setShowResumo(false); setSugError(""); }}
+                  onClick={() => { setActiveId(c.id); updateConvo(c.id, { unread: 0 }); setSuggestion(null); setEditedSug(""); setCountdown(null); setShowResumo(false); setSugError(""); setMobilePanel("chat"); }}
                   style={{
                     display: "flex", alignItems: "center", padding: "12px 16px", gap: 12,
                     background: isActive ? W.active : "transparent", cursor: "pointer",
@@ -1293,12 +1306,15 @@ export default function App() {
         </div>
 
         {/* ── COLUNA DIREITA ──────────────────────────────────────────────── */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", background: W.chatBg, position: "relative" }}>
+        <div className={`col-right${mobilePanel === "list" ? " hidden" : ""}`}>
 
           {active ? (
             <>
               {/* Chat header */}
               <div style={{ height: 60, background: W.chatHdr, display: "flex", alignItems: "center", padding: "0 16px", gap: 12, flexShrink: 0, borderBottom: `1px solid ${W.divider}20` }}>
+                <button onClick={() => setMobilePanel("list")}
+                  style={{ display: "none", background: "none", border: "none", color: W.icon, fontSize: 22, padding: "4px 6px", flexShrink: 0 }}
+                  className="mobile-back">‹</button>
                 <div style={{
                   width: 40, height: 40, borderRadius: "50%", background: avatarColor(active.name),
                   display: "flex", alignItems: "center", justifyContent: "center",
