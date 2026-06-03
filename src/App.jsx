@@ -385,6 +385,35 @@ export default function App() {
     return () => { _onSuggest = null; _onCountdown = null; _onLoading = null; _getConvos = null; _getCfg = null; _getActiveId = null; };
   }, []);
 
+  // Carregar histórico de conversas do localStorage
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem("aurora_convos");
+      if (s) {
+        const saved = JSON.parse(s);
+        if (saved?.length) {
+          setConvos(saved);
+          setActiveId(saved[0].id);
+          // Marcar como já vistas para não reprocessar
+          saved.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
+        }
+      }
+    } catch {}
+  }, []);
+
+  // Salvar conversas no localStorage sempre que mudarem (sem base64 para não estourar limite)
+  useEffect(() => {
+    if (!convos.length) return;
+    try {
+      const toSave = convos.map(c => ({
+        ...c,
+        messages: c.messages.map(m => ({ ...m, url: m.type === "image" ? m.url : undefined })),
+        attachments: (c.attachments || []).map(a => ({ ...a, base64: undefined, url: undefined })),
+      }));
+      localStorage.setItem("aurora_convos", JSON.stringify(toSave));
+    } catch {}
+  }, [convos]);
+
   useEffect(() => {
     try {
       const s = localStorage.getItem("aurora_cfg");
@@ -410,6 +439,11 @@ export default function App() {
   function updateConvo(id, patch) { setConvos(cs => cs.map(c => c.id === id ? { ...c, ...patch } : c)); }
   function updateLead(id, patch) { setConvos(cs => cs.map(c => c.id === id ? { ...c, leadData: { ...c.leadData, ...patch } } : c)); }
   function saveCfg() { try { localStorage.setItem("aurora_cfg", JSON.stringify(cfg)); } catch {} setShowCfg(false); }
+
+  function deleteConvo(id) {
+    setConvos(cs => cs.filter(c => c.id !== id));
+    if (activeId === id) setActiveId(null);
+  }
 
   // ── Webhook polling ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -507,7 +541,23 @@ export default function App() {
 
     poll();
     waPollingRef.current = setInterval(poll, 3000);
-    return () => clearInterval(waPollingRef.current);
+
+    // Keepalive: verificar conexão da instância a cada 2 minutos e reconectar se cair
+    const keepalive = setInterval(async () => {
+      const c = cfgRef.current;
+      if (!c.evoUrl || !c.evoKey || !c.instance) return;
+      try {
+        const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: c.evoUrl, evoKey: c.evoKey, path: `instance/connectionState/${c.instance}` })}`);
+        const d = await r.json().catch(() => ({}));
+        const state = d?.instance?.state || d?.state || d?.instance?.connectionStatus || d?.connectionStatus || "";
+        if (state !== "open") {
+          // Tentar reconectar silenciosamente
+          await fetch(`/api/evo?${new URLSearchParams({ evoUrl: c.evoUrl, evoKey: c.evoKey, path: `instance/connect/${c.instance}` })}`);
+        }
+      } catch {}
+    }, 120000);
+
+    return () => { clearInterval(waPollingRef.current); clearInterval(keepalive); };
   }, []);
 
   // ── Enviar resposta ────────────────────────────────────────────────────────
@@ -991,6 +1041,13 @@ export default function App() {
                       {c.paused && <span style={{ fontSize: 10, background: "#ef444420", color: "#ef4444", borderRadius: 10, padding: "1px 6px", flexShrink: 0 }}>⏸</span>}
                     </div>
                   </div>
+                  <button
+                    onClick={e => { e.stopPropagation(); if (window.confirm(`Excluir conversa com ${c.name}?`)) deleteConvo(c.id); }}
+                    style={{ background: "none", border: "none", color: "#ef444460", fontSize: 14, padding: "4px", flexShrink: 0, opacity: 0, transition: "opacity .15s" }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+                    onMouseLeave={e => e.currentTarget.style.opacity = "0"}
+                    title="Excluir conversa"
+                  >🗑</button>
                 </div>
               );
             })}
