@@ -501,6 +501,19 @@ export default function App() {
   }
 
   // ── WA Panel ───────────────────────────────────────────────────────────────
+  function extractQrFromResponse(d) {
+    // Evolution API v2: { qrcode: { base64, code } }
+    // Evolution API v1: { base64 } or { code }
+    return d?.qrcode?.base64 || d?.qrcode?.code || d?.base64 || d?.code || "";
+  }
+
+  function isConnected(d) {
+    return d?.instance?.state === "open" ||
+      d?.instance?.connectionStatus === "open" ||
+      d?.state === "open" ||
+      d?.connectionStatus === "open";
+  }
+
   async function createInstance() {
     if (!waInstanceInput.trim() || !cfg.evoUrl || !cfg.evoKey) return;
     setWaState("loading");
@@ -511,14 +524,20 @@ export default function App() {
     cfgRef.current = newCfg;
     try { localStorage.setItem("aurora_cfg", JSON.stringify(newCfg)); } catch {}
     try {
-      const res = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `instance/create` })}`, {
+      const res = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: newCfg.evoUrl, evoKey: newCfg.evoKey, path: `instance/create` })}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ instanceName, qrcode: true, integration: "WHATSAPP-BAILEYS" })
       });
+      const d = await res.json().catch(() => ({}));
       if (!res.ok && res.status !== 409) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.message || err.error || `Erro ${res.status}`);
+        throw new Error(d.message || d.error || d.response?.message || `Erro ${res.status}`);
       }
+      // v2 retorna o QR direto no create — usar se disponível
+      const qrDireto = extractQrFromResponse(d);
+      if (qrDireto) { setWaQr(qrDireto); setWaState("qr"); return; }
+      if (isConnected(d)) { setWaConnectedName(instanceName); setWaState("connected"); return; }
+      // Sem QR na resposta — aguardar 1.5s e buscar
+      await new Promise(r => setTimeout(r, 1500));
       await refreshQrFor(instanceName, newCfg);
     } catch (e) { setWaError(e.message); setWaState("form"); }
   }
@@ -530,24 +549,29 @@ export default function App() {
   async function refreshQrFor(instanceName, currentCfg) {
     if (!currentCfg.evoUrl || !currentCfg.evoKey || !instanceName) { setWaState("form"); return; }
     try {
+      // Primeiro verificar se já está conectado
+      const stateRes = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `instance/connectionState/${instanceName}` })}`);
+      const stateD = await stateRes.json().catch(() => ({}));
+      if (isConnected(stateD)) { setWaConnectedName(instanceName); setWaState("connected"); return; }
+
+      // Buscar QR
       const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `instance/connect/${instanceName}` })}`);
-      const d = await r.json();
-      // Evolution API pode retornar base64 direto, dentro de qrcode, ou como code
-      const qrBase64 = d.base64 || d.qrcode?.base64 || d.code || "";
-      if (qrBase64) { setWaQr(qrBase64); setWaState("qr"); }
-      else if (d.instance?.state === "open" || d.state === "open") { setWaConnectedName(instanceName); setWaState("connected"); }
+      const d = await r.json().catch(() => ({}));
+      if (isConnected(d)) { setWaConnectedName(instanceName); setWaState("connected"); return; }
+      const qr = extractQrFromResponse(d);
+      if (qr) { setWaQr(qr); setWaState("qr"); }
       else { setWaQr(""); setWaState("qr"); }
     } catch { setWaState("form"); }
   }
 
   useEffect(() => {
     if (!showWA || waState !== "qr") { clearInterval(waPollingQrRef.current); return; }
+    const instanceName = cfg.instance;
     const poll = async () => {
       try {
-        const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `instance/fetchInstances` })}`);
-        const d = await r.json();
-        const inst = Array.isArray(d) ? d.find(i => i.instance?.instanceName === cfg.instance) : null;
-        if (inst?.instance?.state === "open") { setWaConnectedName(cfg.instance); setWaState("connected"); clearInterval(waPollingQrRef.current); }
+        const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `instance/connectionState/${instanceName}` })}`);
+        const d = await r.json().catch(() => ({}));
+        if (isConnected(d)) { setWaConnectedName(instanceName); setWaState("connected"); clearInterval(waPollingQrRef.current); }
       } catch {}
     };
     waPollingQrRef.current = setInterval(poll, 4000);
