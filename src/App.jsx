@@ -1661,9 +1661,18 @@ export default function App() {
                   accept="image/*,.pdf,.doc,.docx,.xlsx,.xls,.zip,.mp4,.mp3,.csv" />
                 <button onClick={() => fileRef.current?.click()}
                   style={{ background: "none", border: "none", color: W.icon, fontSize: 20, padding: "4px 6px", flexShrink: 0 }}>📎</button>
-                <div style={{ flex: 1, background: W.inputBg, borderRadius: 24, padding: "10px 16px", color: W.sub, fontSize: 14, cursor: "default", userSelect: "none" }}>
-                  Mensagens chegam automaticamente do WhatsApp...
-                </div>
+                <textarea
+                  value={editedSug}
+                  onChange={e => setEditedSug(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); confirmSend(); } }}
+                  placeholder="Digite uma mensagem..."
+                  rows={1}
+                  style={{ flex: 1, background: W.inputBg, border: "none", borderRadius: 24, padding: "10px 16px", color: W.text, fontSize: 14, outline: "none", maxHeight: 120, overflowY: "auto", lineHeight: 1.5 }}
+                />
+                <button onClick={confirmSend} disabled={sending || !editedSug.trim()}
+                  style={{ background: editedSug.trim() ? W.green : W.divider, border: "none", borderRadius: "50%", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 18, flexShrink: 0, transition: "background .15s" }}>
+                  {sending ? "…" : "➤"}
+                </button>
               </div>
             </>
           ) : (
