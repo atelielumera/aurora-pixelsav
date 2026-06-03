@@ -292,15 +292,39 @@ function MessageBubble({ msg, showAvatar, clientName }) {
 }
 
 // ─── WHATSAPP PANEL ──────────────────────────────────────────────────────────
-function WhatsAppPanel({ cfg, onClose }) {
-  const [instanceName, setInstanceName] = useState(cfg.instance || "");
-  const [status, setStatus] = useState("idle"); // idle | creating | qr | connected | error
+function WhatsAppPanel({ cfg, onSaveInstance, onClose }) {
+  // Persist instance name in localStorage
+  const savedInstance = (() => { try { return localStorage.getItem("aurora_wa_instance") || cfg.instance || ""; } catch { return cfg.instance || ""; } })();
+  const [instanceName, setInstanceName] = useState(savedInstance);
+  const [status, setStatus] = useState("checking"); // checking | idle | creating | qr | connected | error
   const [qrCode, setQrCode] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [polling, setPolling] = useState(false);
   const pollRef = useRef(null);
 
-  useEffect(() => { return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+  // On open: if we have a saved instance, check its status automatically
+  useEffect(() => {
+    if (savedInstance && cfg.evoUrl && cfg.evoKey) {
+      checkStatusSilent(savedInstance);
+    } else {
+      setStatus("idle");
+    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
+
+  async function checkStatusSilent(name) {
+    setStatus("checking");
+    try {
+      const r = await fetch(`${cfg.evoUrl}/instance/connectionState/${name}`, {
+        headers: { apikey: cfg.evoKey },
+      });
+      const data = await r.json();
+      const state = data.instance?.state || data.state;
+      if (state === "open") { setStatus("connected"); }
+      else if (state === "close" || state === "connecting") { setStatus("qr"); await fetchQRFor(name); startPolling(name); }
+      else { setStatus("idle"); }
+    } catch { setStatus("idle"); }
+  }
 
   async function createInstance() {
     if (!instanceName.trim()) return;
@@ -314,15 +338,18 @@ function WhatsAppPanel({ cfg, onClose }) {
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.message || data.error || JSON.stringify(data));
+      // Save instance name
+      try { localStorage.setItem("aurora_wa_instance", instanceName.trim()); } catch {}
+      onSaveInstance(instanceName.trim());
       setStatus("qr");
-      await fetchQR();
-      startPolling();
+      await fetchQRFor(instanceName.trim());
+      startPolling(instanceName.trim());
     } catch (e) { setErrorMsg(e.message); setStatus("error"); }
   }
 
-  async function fetchQR() {
+  async function fetchQRFor(name) {
     try {
-      const r = await fetch(`${cfg.evoUrl}/instance/connect/${instanceName.trim()}`, {
+      const r = await fetch(`${cfg.evoUrl}/instance/connect/${name}`, {
         headers: { apikey: cfg.evoKey },
       });
       const data = await r.json();
@@ -331,9 +358,9 @@ function WhatsAppPanel({ cfg, onClose }) {
     } catch {}
   }
 
-  async function checkStatus() {
+  async function checkStatus(name) {
     try {
-      const r = await fetch(`${cfg.evoUrl}/instance/connectionState/${instanceName.trim()}`, {
+      const r = await fetch(`${cfg.evoUrl}/instance/connectionState/${name}`, {
         headers: { apikey: cfg.evoKey },
       });
       const data = await r.json();
@@ -342,15 +369,16 @@ function WhatsAppPanel({ cfg, onClose }) {
     } catch {}
   }
 
-  function startPolling() {
+  function startPolling(name) {
     setPolling(true);
-    pollRef.current = setInterval(async () => { await fetchQR(); await checkStatus(); }, 3000);
+    pollRef.current = setInterval(async () => { await fetchQRFor(name); await checkStatus(name); }, 3000);
   }
 
   async function disconnectInstance() {
     try {
       await fetch(`${cfg.evoUrl}/instance/logout/${instanceName.trim()}`, { method: "DELETE", headers: { apikey: cfg.evoKey } });
       setStatus("idle"); setQrCode(null);
+      try { localStorage.removeItem("aurora_wa_instance"); } catch {}
     } catch (e) { setErrorMsg(e.message); }
   }
 
@@ -358,6 +386,8 @@ function WhatsAppPanel({ cfg, onClose }) {
     try {
       await fetch(`${cfg.evoUrl}/instance/delete/${instanceName.trim()}`, { method: "DELETE", headers: { apikey: cfg.evoKey } });
       setStatus("idle"); setQrCode(null); setInstanceName("");
+      try { localStorage.removeItem("aurora_wa_instance"); } catch {}
+      onSaveInstance("");
     } catch (e) { setErrorMsg(e.message); }
   }
 
@@ -376,19 +406,34 @@ function WhatsAppPanel({ cfg, onClose }) {
         </div>
 
         {/* Instance name input */}
-        {status !== "connected" && (
+        {(status === "idle" || status === "error") && (
           <div>
             <label style={{ color: W.sub, fontSize: 11, display: "block", marginBottom: 5 }}>NOME DA INSTÂNCIA</label>
             <div style={{ display: "flex", gap: 8 }}>
               <input value={instanceName} onChange={e => setInstanceName(e.target.value.replace(/\s/g, ""))}
                 placeholder="ex: pixelsav-comercial"
-                disabled={status === "creating" || status === "qr"}
                 style={{ flex: 1, background: W.inputBg, border: `1px solid ${W.divider}`, borderRadius: 8, padding: "9px 12px", color: W.text, fontSize: 14, outline: "none" }} />
-              <button onClick={createInstance} disabled={!instanceName.trim() || status === "creating" || status === "qr"}
+              <button onClick={createInstance} disabled={!instanceName.trim()}
                 style={{ background: W.green, color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap", opacity: !instanceName.trim() ? .5 : 1 }}>
-                {status === "creating" ? "Criando..." : "Criar e conectar"}
+                Criar e conectar
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Checking */}
+        {status === "checking" && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "20px 0" }}>
+            <div style={{ fontSize: 32 }}>🔄</div>
+            <div style={{ color: W.sub, fontSize: 13 }}>Verificando status da instância <strong style={{ color: W.text }}>{instanceName}</strong>...</div>
+          </div>
+        )}
+
+        {/* Creating */}
+        {status === "creating" && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "20px 0" }}>
+            <div style={{ fontSize: 32 }}>⚙️</div>
+            <div style={{ color: W.sub, fontSize: 13 }}>Criando instância...</div>
           </div>
         )}
 
@@ -588,7 +633,7 @@ export default function AuroraAgent() {
       )}
 
       {/* WhatsApp Panel Modal */}
-      {showWA && <WhatsAppPanel cfg={cfg} onClose={() => setShowWA(false)} />}
+      {showWA && <WhatsAppPanel cfg={cfg} onSaveInstance={(name) => { setCfg(c => { const nc = {...c, instance: name}; try { localStorage.setItem("aurora_cfg_v3", JSON.stringify(nc)); } catch {} return nc; }); }} onClose={() => setShowWA(false)} />}
 
       {/* ════ LEFT ════ */}
       <div style={{ width: 380, minWidth: 300, display: "flex", flexDirection: "column", background: W.leftBg, borderRight: `1px solid ${W.divider}`, flexShrink: 0 }}>
