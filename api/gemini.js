@@ -22,6 +22,11 @@ export default async function handler(req, res) {
       }
     );
     const d = await r.json();
+    if (d.error) {
+      const msg = d.error?.message || d.error?.status || JSON.stringify(d.error);
+      res.status(r.status).json({ error: msg });
+      return;
+    }
     res.status(r.status).json(d);
   } catch (e) {
     res.status(500).json({ error: e.message });
