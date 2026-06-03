@@ -371,7 +371,6 @@ export default function App() {
   const waPollingRef = useRef(null);
   const seenIds = useRef(new Set());
   const saudacaoEnviada = useRef(new Set());
-  const lastProcessedId = useRef(null);
   const convosRef = useRef(convos);
   const cfgRef = useRef(cfg);
   const activeIdRef = useRef(activeId);
@@ -451,9 +450,6 @@ export default function App() {
           const existingConvo = convosRef.current.find(c => c.waJid === from || c.phone === phone);
           const novoId = Date.now() + Math.random();
           const targetConvoId = existingConvo ? existingConvo.id : novoId;
-
-          if (lastProcessedId.current === msgId) continue;
-          lastProcessedId.current = msgId;
 
           // Disparar side-effects FORA do setConvos (que deve ser pura)
           const isNewContact = !existingConvo;
