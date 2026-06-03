@@ -558,19 +558,17 @@ export default function AuroraAgent() {
   useEffect(() => {
     const interval = setInterval(() => {
       if (!pendingSuggestion.current) return;
-      const { msgs, isNovo } = pendingSuggestion.current;
+      const { msgs } = pendingSuggestion.current;
+      // Só propõe se a última mensagem for do cliente
+      const ultimaMsg = msgs[msgs.length - 1];
+      if (!ultimaMsg || ultimaMsg.from !== "cliente") return;
       pendingSuggestion.current = null;
       const currentCfg = cfgRef.current;
       if (!currentCfg.geminiKey) return;
       setSuggestion(null); setEditedSug("");
-      if (isNovo) {
-        const sug = "Que ótimo! Você veio ao lugar certo. 😊 Para eu te ajudar melhor, pode me contar um pouco mais? Seria para um evento pontual ou uma instalação fixa?";
+      callGemini(currentCfg.geminiKey, msgs).then(sug => {
         setSuggestion(sug); setEditedSug(sug);
-      } else {
-        callGemini(currentCfg.geminiKey, msgs).then(sug => {
-          setSuggestion(sug); setEditedSug(sug);
-        }).catch(() => {});
-      }
+      }).catch(() => {});
     }, 500);
     return () => clearInterval(interval);
   }, []);
