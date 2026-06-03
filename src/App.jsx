@@ -291,10 +291,181 @@ function MessageBubble({ msg, showAvatar, clientName }) {
   );
 }
 
+// ─── WHATSAPP PANEL ──────────────────────────────────────────────────────────
+function WhatsAppPanel({ cfg, onClose }) {
+  const [instanceName, setInstanceName] = useState(cfg.instance || "");
+  const [status, setStatus] = useState("idle"); // idle | creating | qr | connected | error
+  const [qrCode, setQrCode] = useState(null);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [polling, setPolling] = useState(false);
+  const pollRef = useRef(null);
+
+  useEffect(() => { return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
+
+  async function createInstance() {
+    if (!instanceName.trim()) return;
+    if (!cfg.evoUrl || !cfg.evoKey) { setErrorMsg("Configure a Evolution API URL e API Key em ⚙️ primeiro."); setStatus("error"); return; }
+    setStatus("creating"); setErrorMsg(""); setQrCode(null);
+    try {
+      const r = await fetch(`${cfg.evoUrl}/instance/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: cfg.evoKey },
+        body: JSON.stringify({ instanceName: instanceName.trim(), qrcode: true, integration: "WHATSAPP-BAILEYS" }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.message || data.error || JSON.stringify(data));
+      setStatus("qr");
+      await fetchQR();
+      startPolling();
+    } catch (e) { setErrorMsg(e.message); setStatus("error"); }
+  }
+
+  async function fetchQR() {
+    try {
+      const r = await fetch(`${cfg.evoUrl}/instance/connect/${instanceName.trim()}`, {
+        headers: { apikey: cfg.evoKey },
+      });
+      const data = await r.json();
+      if (data.base64) { setQrCode(data.base64); setStatus("qr"); }
+      else if (data.instance?.state === "open") { setStatus("connected"); if (pollRef.current) clearInterval(pollRef.current); }
+    } catch {}
+  }
+
+  async function checkStatus() {
+    try {
+      const r = await fetch(`${cfg.evoUrl}/instance/connectionState/${instanceName.trim()}`, {
+        headers: { apikey: cfg.evoKey },
+      });
+      const data = await r.json();
+      const state = data.instance?.state || data.state;
+      if (state === "open") { setStatus("connected"); if (pollRef.current) clearInterval(pollRef.current); setPolling(false); }
+    } catch {}
+  }
+
+  function startPolling() {
+    setPolling(true);
+    pollRef.current = setInterval(async () => { await fetchQR(); await checkStatus(); }, 3000);
+  }
+
+  async function disconnectInstance() {
+    try {
+      await fetch(`${cfg.evoUrl}/instance/logout/${instanceName.trim()}`, { method: "DELETE", headers: { apikey: cfg.evoKey } });
+      setStatus("idle"); setQrCode(null);
+    } catch (e) { setErrorMsg(e.message); }
+  }
+
+  async function deleteInstance() {
+    try {
+      await fetch(`${cfg.evoUrl}/instance/delete/${instanceName.trim()}`, { method: "DELETE", headers: { apikey: cfg.evoKey } });
+      setStatus("idle"); setQrCode(null); setInstanceName("");
+    } catch (e) { setErrorMsg(e.message); }
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000b", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: "#111b21", border: `1px solid ${W.divider}`, borderRadius: 16, padding: 28, width: 420, maxWidth: "95vw", display: "flex", flexDirection: "column", gap: 18, boxShadow: "0 20px 60px #000a" }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 24 }}>📱</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: W.text, fontWeight: 700, fontSize: 16 }}>WhatsApp · Conexão</div>
+            <div style={{ color: W.sub, fontSize: 12 }}>Evolution API · Criar e conectar instância</div>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: W.sub, fontSize: 20, cursor: "pointer" }}>✕</button>
+        </div>
+
+        {/* Instance name input */}
+        {status !== "connected" && (
+          <div>
+            <label style={{ color: W.sub, fontSize: 11, display: "block", marginBottom: 5 }}>NOME DA INSTÂNCIA</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={instanceName} onChange={e => setInstanceName(e.target.value.replace(/\s/g, ""))}
+                placeholder="ex: pixelsav-comercial"
+                disabled={status === "creating" || status === "qr"}
+                style={{ flex: 1, background: W.inputBg, border: `1px solid ${W.divider}`, borderRadius: 8, padding: "9px 12px", color: W.text, fontSize: 14, outline: "none" }} />
+              <button onClick={createInstance} disabled={!instanceName.trim() || status === "creating" || status === "qr"}
+                style={{ background: W.green, color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap", opacity: !instanceName.trim() ? .5 : 1 }}>
+                {status === "creating" ? "Criando..." : "Criar e conectar"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Error */}
+        {status === "error" && (
+          <div style={{ background: "#2a1010", border: "1px solid #ef444444", borderRadius: 10, padding: "10px 14px", color: "#ef4444", fontSize: 13 }}>
+            ⚠️ {errorMsg}
+          </div>
+        )}
+
+        {/* QR Code */}
+        {status === "qr" && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+            <div style={{ background: "#1a2a1a", border: `1px solid ${W.green}44`, borderRadius: 12, padding: 14, textAlign: "center" }}>
+              <div style={{ color: W.green, fontSize: 12, fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>
+                {polling ? "🔄 AGUARDANDO LEITURA..." : "📷 ESCANEIE COM O WHATSAPP"}
+              </div>
+              {qrCode ? (
+                <img src={qrCode.startsWith("data:") ? qrCode : `data:image/png;base64,${qrCode}`}
+                  alt="QR Code WhatsApp"
+                  style={{ width: 220, height: 220, borderRadius: 8, display: "block", margin: "0 auto" }} />
+              ) : (
+                <div style={{ width: 220, height: 220, background: W.inputBg, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: W.sub, fontSize: 13 }}>
+                  Gerando QR...
+                </div>
+              )}
+              <div style={{ color: W.sub, fontSize: 11, marginTop: 10, lineHeight: 1.6 }}>
+                Abra o WhatsApp → Dispositivos conectados<br />→ Conectar dispositivo → Escaneie
+              </div>
+            </div>
+            <button onClick={fetchQR} style={{ background: W.inputBg, border: `1px solid ${W.divider}`, borderRadius: 8, padding: "8px 18px", color: W.text, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+              🔄 Atualizar QR Code
+            </button>
+          </div>
+        )}
+
+        {/* Connected */}
+        {status === "connected" && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+            <div style={{ background: "#0d2a1a", border: `1px solid ${W.green}66`, borderRadius: 12, padding: "20px 28px", textAlign: "center" }}>
+              <div style={{ fontSize: 48, marginBottom: 8 }}>✅</div>
+              <div style={{ color: W.green, fontWeight: 700, fontSize: 16, marginBottom: 4 }}>WhatsApp Conectado!</div>
+              <div style={{ color: W.sub, fontSize: 13 }}>Instância: <strong style={{ color: W.text }}>{instanceName}</strong></div>
+            </div>
+            <div style={{ display: "flex", gap: 8, width: "100%" }}>
+              <button onClick={disconnectInstance} style={{ flex: 1, background: "#2a2010", border: "1px solid #f9731644", borderRadius: 8, padding: "9px 0", color: "#f97316", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+                Desconectar
+              </button>
+              <button onClick={deleteInstance} style={{ flex: 1, background: "#2a1010", border: "1px solid #ef444444", borderRadius: 8, padding: "9px 0", color: "#ef4444", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+                Excluir instância
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Instructions */}
+        {status === "idle" && (
+          <div style={{ background: "#0d1a22", borderRadius: 10, padding: "12px 14px" }}>
+            <div style={{ color: W.sub, fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>COMO FUNCIONA</div>
+            <div style={{ color: W.sub, fontSize: 12, lineHeight: 1.8 }}>
+              1. Digite um nome para a instância<br />
+              2. Clique em "Criar e conectar"<br />
+              3. Escaneie o QR Code com o WhatsApp<br />
+              4. Pronto — WhatsApp conectado!
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── MAIN ────────────────────────────────────────────────────────────────────
 export default function AuroraAgent() {
   const [cfg, setCfg] = useState({ geminiKey: "", evoUrl: "", instance: "", evoKey: "", groupId: "" });
   const [showCfg, setShowCfg] = useState(false);
+  const [showWA, setShowWA] = useState(false);
   const [convos, setConvos] = useState([
     { id: 1, name: "Cliente Exemplo", phone: "41 99999-0001", lastMsg: "Oi, vi vocês no Instagram!", time: "09:14", unread: 1, messages: [], leadData: {}, attachments: [] },
   ]);
@@ -416,6 +587,9 @@ export default function AuroraAgent() {
         </div>
       )}
 
+      {/* WhatsApp Panel Modal */}
+      {showWA && <WhatsAppPanel cfg={cfg} onClose={() => setShowWA(false)} />}
+
       {/* ════ LEFT ════ */}
       <div style={{ width: 380, minWidth: 300, display: "flex", flexDirection: "column", background: W.leftBg, borderRight: `1px solid ${W.divider}`, flexShrink: 0 }}>
 
@@ -423,8 +597,9 @@ export default function AuroraAgent() {
         <div style={{ background: W.leftHdr, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10, height: 60, flexShrink: 0 }}>
           <Avatar name="Denise" size={40} />
           <span style={{ flex: 1, color: W.text, fontWeight: 600, fontSize: 15 }}>Denise · PixelSAV</span>
-          <button onClick={() => setShowNew(p => !p)} style={{ background: "none", border: "none", color: W.icon, cursor: "pointer", fontSize: 20, padding: "4px 6px", borderRadius: 6 }}>✎</button>
-          <button onClick={() => setShowCfg(p => !p)} style={{ background: "none", border: "none", color: W.icon, cursor: "pointer", fontSize: 18, padding: "4px 6px", borderRadius: 6 }}>⚙</button>
+          <button onClick={() => setShowNew(p => !p)} title="Nova conversa" style={{ background: "none", border: "none", color: W.icon, cursor: "pointer", fontSize: 20, padding: "4px 6px", borderRadius: 6 }}>✎</button>
+          <button onClick={() => setShowWA(true)} title="Conectar WhatsApp" style={{ background: "none", border: "none", color: W.icon, cursor: "pointer", fontSize: 18, padding: "4px 6px", borderRadius: 6 }}>📱</button>
+          <button onClick={() => setShowCfg(p => !p)} title="Configurações" style={{ background: "none", border: "none", color: W.icon, cursor: "pointer", fontSize: 18, padding: "4px 6px", borderRadius: 6 }}>⚙</button>
         </div>
 
         {/* Config */}
