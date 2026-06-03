@@ -554,23 +554,26 @@ export default function AuroraAgent() {
   const cfgRef = useRef(cfg);
   useEffect(() => { cfgRef.current = cfg; }, [cfg]);
 
-  // Processa sugestão pendente quando convos atualiza
+  // Intervalo que verifica sugestão pendente a cada 500ms
   useEffect(() => {
-    if (!pendingSuggestion.current) return;
-    const { msgs, isNovo } = pendingSuggestion.current;
-    pendingSuggestion.current = null;
-    const currentCfg = cfgRef.current;
-    if (!currentCfg.geminiKey) return;
-    setSuggestion(null); setEditedSug("");
-    if (isNovo) {
-      const sug = "Que ótimo! Você veio ao lugar certo. Para que eu possa te ajudar melhor, pode me contar um pouco mais sobre o projeto? Seria para um evento ou uma instalação fixa?";
-      setSuggestion(sug); setEditedSug(sug);
-    } else {
-      callGemini(currentCfg.geminiKey, msgs).then(sug => {
+    const interval = setInterval(() => {
+      if (!pendingSuggestion.current) return;
+      const { msgs, isNovo } = pendingSuggestion.current;
+      pendingSuggestion.current = null;
+      const currentCfg = cfgRef.current;
+      if (!currentCfg.geminiKey) return;
+      setSuggestion(null); setEditedSug("");
+      if (isNovo) {
+        const sug = "Que ótimo! Você veio ao lugar certo. 😊 Para eu te ajudar melhor, pode me contar um pouco mais? Seria para um evento pontual ou uma instalação fixa?";
         setSuggestion(sug); setEditedSug(sug);
-      }).catch(() => {});
-    }
-  }, [convos]);
+      } else {
+        callGemini(currentCfg.geminiKey, msgs).then(sug => {
+          setSuggestion(sug); setEditedSug(sug);
+        }).catch(() => {});
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (waPollingRef.current) clearInterval(waPollingRef.current);
