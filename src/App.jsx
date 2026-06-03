@@ -519,7 +519,7 @@ export default function AuroraAgent() {
   const [showCfg, setShowCfg] = useState(false);
   const [showWA, setShowWA] = useState(false);
   const [convos, setConvos] = useState([
-    { id: 1, name: "Cliente Exemplo", phone: "41 99999-0001", lastMsg: "Oi, vi vocês no Instagram!", time: "09:14", unread: 1, messages: [], leadData: {}, attachments: [] },
+    { id: 1, name: "Cliente Exemplo", phone: "41 99999-0001", lastMsg: "Oi, vi vocês no Instagram!", time: "09:14", unread: 1, messages: [], leadData: {}, attachments: [], paused: false },
   ]);
   const [activeId, setActiveId] = useState(1);
   const [newName, setNewName] = useState("");
@@ -554,72 +554,59 @@ export default function AuroraAgent() {
   const cfgRef = useRef(cfg);
   useEffect(() => { cfgRef.current = cfg; }, [cfg]);
 
-  // Timer 45s — reinicia a cada nova mensagem do cliente
+  // ── TIMER 45s ─────────────────────────────────────────────────────
   const delayTimerRef = useRef(null);
-  const [processingCountdown, setProcessingCountdown] = useState(null);
   const countdownRef = useRef(null);
+  const [countdown, setCountdown] = useState(null);
   const convosRef = useRef(convos);
   useEffect(() => { convosRef.current = convos; }, [convos]);
 
-  // Intervalo que verifica pendingSuggestion a cada 500ms
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!pendingSuggestion.current) return;
-      const { msgs } = pendingSuggestion.current;
-      pendingSuggestion.current = null;
+  // Chamado toda vez que chega mensagem do cliente
+  // Reinicia o timer de 45s (só se não estiver pausado)
+  function iniciarTimer(waId, waJid) {
+    const convo = convosRef.current?.find(c => c.waJid === waJid);
+    if (convo?.paused) return; // pausado — não processa
+    if (delayTimerRef.current) clearTimeout(delayTimerRef.current);
+    if (countdownRef.current) clearInterval(countdownRef.current);
 
-      const ultimaMsg = msgs[msgs.length - 1];
-      if (!ultimaMsg || ultimaMsg.from !== "cliente") return;
+    const currentCfg = cfgRef.current;
 
-      // Reinicia timer
-      if (delayTimerRef.current) clearTimeout(delayTimerRef.current);
-      if (countdownRef.current) clearInterval(countdownRef.current);
+    // Digitando no WhatsApp
+    if (waJid && currentCfg.evoUrl && currentCfg.evoKey && currentCfg.instance) {
+      fetch(`/api/evo?${new URLSearchParams({
+        evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey,
+        path: `chat/presence/${currentCfg.instance}`
+      })}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ number: waJid, options: { presence: "composing", delay: 30000 } }),
+      }).catch(() => {});
+    }
 
-      // Contador visual regressivo
-      let seg = 45;
-      setProcessingCountdown(seg);
-      countdownRef.current = setInterval(() => {
-        seg -= 1;
-        setProcessingCountdown(seg > 0 ? seg : null);
-        if (seg <= 0) clearInterval(countdownRef.current);
-      }, 1000);
+    // Contador visual 45s
+    let seg = 30;
+    setCountdown(seg);
+    countdownRef.current = setInterval(() => {
+      seg -= 1;
+      setCountdown(seg > 0 ? seg : null);
+      if (seg <= 0) clearInterval(countdownRef.current);
+    }, 1000);
 
-      // Digitando no WhatsApp
-      const currentCfg = cfgRef.current;
-      const convoAtivo = convosRef.current?.find(c =>
-        c.messages.some(m => m.waId === ultimaMsg.waId)
-      );
-      if (convoAtivo?.waJid && currentCfg.evoUrl && currentCfg.evoKey && currentCfg.instance) {
-        fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `chat/presence/${currentCfg.instance}` })}`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ number: convoAtivo.waJid, options: { presence: "composing", delay: 45000 } }),
-        }).catch(() => {});
-      }
-
-      // Após 45s gera sugestão com as msgs mais recentes
-      const msgsParaProcessar = msgs;
-      delayTimerRef.current = setTimeout(() => {
-        clearInterval(countdownRef.current);
-        setProcessingCountdown(null);
-        if (!currentCfg.geminiKey) return;
-        // Pega msgs atuais da conversa
-        const convoAtualizado = convosRef.current?.find(c =>
-          c.messages.some(m => m.waId === ultimaMsg.waId)
-        );
-        const msgsFinais = convoAtualizado?.messages || msgsParaProcessar;
-        callGemini(currentCfg.geminiKey, msgsFinais).then(sug => {
-          setSuggestion(sug);
-          setEditedSug(sug);
-        }).catch(() => {});
-      }, 45000);
-
-    }, 500);
-    return () => {
-      clearInterval(interval);
-      if (delayTimerRef.current) clearTimeout(delayTimerRef.current);
-      if (countdownRef.current) clearInterval(countdownRef.current);
-    };
-  }, []);
+    // Após 45s — pega msgs atuais e gera sugestão
+    delayTimerRef.current = setTimeout(() => {
+      clearInterval(countdownRef.current);
+      setCountdown(null);
+      if (!currentCfg.geminiKey) return;
+      const convo = convosRef.current?.find(c => c.waJid === waJid);
+      const msgsAtuais = convo?.messages || [];
+      if (!msgsAtuais.length) return;
+      const ultima = msgsAtuais[msgsAtuais.length - 1];
+      if (ultima?.from !== "cliente") return;
+      callGemini(currentCfg.geminiKey, msgsAtuais).then(sug => {
+        setSuggestion(sug);
+        setEditedSug(sug);
+      }).catch(() => {});
+    }, 30000);
+  }
 
   useEffect(() => {
     if (waPollingRef.current) clearInterval(waPollingRef.current);
@@ -667,9 +654,9 @@ export default function AuroraAgent() {
             if (existing) {
               if (existing.messages.some(em => em.waId === msgId)) return cs;
               const newMsgs = [...existing.messages, novaMsg];
-              // Ativa conversa e agenda sugestão
+              // Ativa conversa e inicia timer 45s
               setActiveId(existing.id);
-              pendingSuggestion.current = { msgs: newMsgs };
+              setTimeout(() => iniciarTimer(msgId, from), 100);
               return cs.map(c => c.id === existing.id ? {
                 ...c, messages: newMsgs,
                 lastMsg: text.slice(0,40), time: timeStr, unread: (c.unread||0)+1,
@@ -689,9 +676,9 @@ export default function AuroraAgent() {
               }
               const msgSaudacao = { from:"aurora", text: saudacao, time: timeStr, id: Date.now()+Math.random(), type:"text" };
               const msgsComSaudacao = [msgSaudacao, novaMsg];
-              // Ativa a conversa e agenda sugestão após saudação
+              // Ativa a conversa e inicia timer 45s após saudação
               setActiveId(novoId);
-              pendingSuggestion.current = { msgs: msgsComSaudacao };
+              setTimeout(() => iniciarTimer(msgId, from), 100);
               return [{ id:novoId, name, phone, waJid:from, lastMsg:text.slice(0,40), time:timeStr, unread:1,
                 messages:msgsComSaudacao, leadData:{}, attachments:[] }, ...cs];
             }
@@ -886,7 +873,8 @@ export default function AuroraAgent() {
                   <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                     <span style={{ color: W.sub, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{c.lastMsg}</span>
                     {hasAttach && <span style={{ fontSize: 12 }}>📎</span>}
-                    {cs > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: csi.color, background: csi.bg, borderRadius: 10, padding: "2px 6px", flexShrink: 0 }}>{csi.emoji}</span>}
+                    {c.paused && <span style={{ fontSize: 9, fontWeight: 700, color: "#ef4444", background: "#ef444420", borderRadius: 10, padding: "2px 6px", flexShrink: 0 }}>⏸</span>}
+                    {!c.paused && cs > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: csi.color, background: csi.bg, borderRadius: 10, padding: "2px 6px", flexShrink: 0 }}>{csi.emoji}</span>}
                   </div>
                 </div>
               </div>
@@ -913,6 +901,12 @@ export default function AuroraAgent() {
               <div style={{ color: W.sub, fontSize: 12 }}>{active.phone || "cliente"}{attachments.length > 0 ? ` · 📎 ${attachments.length} anexo${attachments.length > 1 ? "s" : ""}` : ""}</div>
             </div>
             <div style={{ background: si.bg, border: `1px solid ${si.color}44`, borderRadius: 20, padding: "4px 12px", fontSize: 11.5, fontWeight: 700, color: si.color }}>{si.emoji} {si.label} {score}/100</div>
+            <button
+              onClick={() => updateConvo(activeId, { paused: !active?.paused })}
+              title={active?.paused ? "Retomar atendimento" : "Pausar atendimento"}
+              style={{ background: active?.paused ? "#2a1010" : "none", border: active?.paused ? "1px solid #ef444444" : "none", color: active?.paused ? "#ef4444" : W.icon, cursor: "pointer", fontSize: 16, padding: "6px 8px", borderRadius: 6, fontWeight: active?.paused ? 700 : 400 }}>
+              {active?.paused ? "⏸ Pausado" : "⏸"}
+            </button>
             <button onClick={() => setShowLead(p => !p)} style={{ background: showLead ? W.active : "none", border: "none", color: W.icon, cursor: "pointer", fontSize: 18, padding: "6px 8px", borderRadius: 6 }}>👤</button>
           </div>
 
