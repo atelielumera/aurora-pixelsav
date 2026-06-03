@@ -516,6 +516,7 @@ export default function AuroraAgent() {
   const fileRef = useRef(null);
   const waPollingRef = useRef(null);
   const lastMsgIdsSeen = useRef(new Set());
+  const pendingSuggestion = useRef(null);
 
   useEffect(() => {
     try { const s = localStorage.getItem("aurora_cfg_v3"); if (s) setCfg(JSON.parse(s)); } catch {}
@@ -526,6 +527,24 @@ export default function AuroraAgent() {
   // e gera sugestão automática da Aurora para cada mensagem nova
   const cfgRef = useRef(cfg);
   useEffect(() => { cfgRef.current = cfg; }, [cfg]);
+
+  // Processa sugestão pendente quando convos atualiza
+  useEffect(() => {
+    if (!pendingSuggestion.current) return;
+    const { msgs, isNovo } = pendingSuggestion.current;
+    pendingSuggestion.current = null;
+    const currentCfg = cfgRef.current;
+    if (!currentCfg.geminiKey) return;
+    setSuggestion(null); setEditedSug("");
+    if (isNovo) {
+      const sug = "Que ótimo! Você veio ao lugar certo. Para que eu possa te ajudar melhor, pode me contar um pouco mais sobre o projeto? Seria para um evento ou uma instalação fixa?";
+      setSuggestion(sug); setEditedSug(sug);
+    } else {
+      callGemini(currentCfg.geminiKey, msgs).then(sug => {
+        setSuggestion(sug); setEditedSug(sug);
+      }).catch(() => {});
+    }
+  }, [convos]);
 
   useEffect(() => {
     if (waPollingRef.current) clearInterval(waPollingRef.current);
@@ -573,9 +592,9 @@ export default function AuroraAgent() {
             if (existing) {
               if (existing.messages.some(em => em.waId === msgId)) return cs;
               const newMsgs = [...existing.messages, novaMsg];
-              // Ativa conversa e gera sugestão
+              // Ativa conversa e agenda sugestão
               setActiveId(existing.id);
-              setTimeout(() => gerarSugestao(newMsgs, false), 300);
+              pendingSuggestion.current = { msgs: newMsgs, isNovo: false };
               return cs.map(c => c.id === existing.id ? {
                 ...c, messages: newMsgs,
                 lastMsg: text.slice(0,40), time: timeStr, unread: (c.unread||0)+1,
@@ -595,11 +614,9 @@ export default function AuroraAgent() {
               }
               const msgSaudacao = { from:"aurora", text: saudacao, time: timeStr, id: Date.now()+Math.random(), type:"text" };
               const msgsComSaudacao = [msgSaudacao, novaMsg];
-              // Ativa a conversa e gera sugestão após 800ms
+              // Ativa a conversa e agenda sugestão
               setActiveId(novoId);
-              setTimeout(() => {
-                gerarSugestao(msgsComSaudacao, false);
-              }, 800);
+              pendingSuggestion.current = { msgs: msgsComSaudacao, isNovo: true };
               return [{ id:novoId, name, phone, waJid:from, lastMsg:text.slice(0,40), time:timeStr, unread:1,
                 messages:msgsComSaudacao, leadData:{}, attachments:[] }, ...cs];
             }
