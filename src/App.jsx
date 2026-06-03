@@ -288,6 +288,7 @@ export default function App() {
   const fileRef=useRef(null);
   const waPollingRef=useRef(null);
   const seenIds=useRef(new Set());
+  const saudacaoEnviada=useRef(new Set()); // números que já receberam saudação
   const cfgRef=useRef(cfg);
   const convosRef=useRef(convos);
   const activeIdRef=useRef(activeId);
@@ -394,9 +395,10 @@ export default function App() {
             } else {
               const novoId=Date.now()+Math.random();
               convoId=novoId;
-              // Envia saudação automática
+              // Envia saudação automática — só uma vez por número
               const currentCfg=cfgRef.current;
-              if(currentCfg.evoUrl&&currentCfg.evoKey&&currentCfg.instance){
+              if(!saudacaoEnviada.current.has(from)&&currentCfg.evoUrl&&currentCfg.evoKey&&currentCfg.instance){
+                saudacaoEnviada.current.add(from);
                 fetch(`/api/evo?${new URLSearchParams({evoUrl:currentCfg.evoUrl,evoKey:currentCfg.evoKey,path:`message/sendText/${currentCfg.instance}`})}`,{
                   method:"POST",headers:{"Content-Type":"application/json"},
                   body:JSON.stringify({number:from,text:saudacao})
@@ -410,15 +412,16 @@ export default function App() {
             }
           });
 
-          // Dispara timer FORA do setConvos, após 100ms para o state atualizar
-          setTimeout(()=>{
-            const convo=convosRef.current.find(c=>c.id===convoId||c.waJid===from);
-            if(!convo||convo.paused) return;
-            if(lastProcessedRef.current===msgId) return;
+          // Dispara timer usando waJid (from) — não depende de convoId
+          if(lastProcessedRef.current!==msgId){
             lastProcessedRef.current=msgId;
-            if(convoId) setActiveId(convoId);
-            dispararTimer(from, convoId||convo.id);
-          },150);
+            setTimeout(()=>{
+              const convo=convosRef.current.find(c=>c.waJid===from||c.phone===phone);
+              if(!convo||convo.paused) return;
+              setActiveId(convo.id);
+              dispararTimer(from, convo.id);
+            },200);
+          }
         }
       }catch(e){}
     };
