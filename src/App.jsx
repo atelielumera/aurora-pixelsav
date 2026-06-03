@@ -349,11 +349,7 @@ function WhatsAppPanel({ cfg, onSaveInstance, onClose }) {
         return;
       }
       // 2. Tenta criar (ignora se já existir)
-      await fetch(`${cfg.evoUrl}/instance/create`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", apikey: cfg.evoKey },
-        body: JSON.stringify({ instanceName: name, qrcode: true, integration: "WHATSAPP-BAILEYS" }),
-      });
+      await evoFetch("instance/create", "POST", { instanceName: name, qrcode: true, integration: "WHATSAPP-BAILEYS" });
       await new Promise(r => setTimeout(r, 2000));
       // 3. Verifica de novo se conectou após criar
       const alreadyAfter = await verificarConectado(name);
@@ -381,10 +377,17 @@ function WhatsAppPanel({ cfg, onSaveInstance, onClose }) {
     } catch (e) { setErr(e.message); setStep("form"); }
   }
 
+  // Usa proxy /api/evo para evitar CORS
+  function evoFetch(path, method="GET", body=null) {
+    const params = new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path });
+    const opts = { method, headers: { "Content-Type": "application/json" } };
+    if (body) opts.body = JSON.stringify(body);
+    return fetch(`/api/evo?${params}`, opts).then(r => r.json());
+  }
+
   async function buscarQR(name) {
     try {
-      const r = await fetch(`${cfg.evoUrl}/instance/connect/${name}`, { headers: { apikey: cfg.evoKey } });
-      const d = await r.json();
+      const d = await evoFetch(`instance/connect/${name}`);
       const img = d.base64 || d.qrcode?.base64 || null;
       if (img) { setQrCode(img); return img; }
       if ((d.instance?.state || d.state) === "open") { setStep("connected"); return null; }
@@ -394,15 +397,14 @@ function WhatsAppPanel({ cfg, onSaveInstance, onClose }) {
 
   async function verificarConectado(name) {
     try {
-      const r = await fetch(`${cfg.evoUrl}/instance/connectionState/${name}`, { headers: { apikey: cfg.evoKey } });
-      const d = await r.json();
+      const d = await evoFetch(`instance/connectionState/${name}`);
       return (d.instance?.state || d.state) === "open";
     } catch { return false; }
   }
 
   async function handleDesconectar() {
     if (pollRef.current) clearInterval(pollRef.current);
-    try { await fetch(`${cfg.evoUrl}/instance/logout/${instanceName.trim()}`, { method: "DELETE", headers: { apikey: cfg.evoKey } }); } catch {}
+    try { await evoFetch(`instance/logout/${instanceName.trim()}`, "DELETE"); } catch {}
     try { localStorage.removeItem("aurora_wa_instance"); } catch {}
     onSaveInstance("");
     setStep("form"); setQrCode(null); setInstanceName("");
