@@ -106,70 +106,96 @@ function scoreInfo(s) {
   return { label: "FRIO", color: "#60a5fa", bg: "#60a5fa20", emoji: "🔵" };
 }
 
+// Retorna o texto depois do último "?" em uma linha (a resposta do cliente)
+function answerOf(line) {
+  const clean = line.replace(/\*/g, "").trim();
+  const qi = clean.lastIndexOf("?");
+  return qi >= 0 ? clean.slice(qi + 1).trim() : clean.replace(/^\d+[\.\)]\s*/, "").trim();
+}
+
 function extractLead(msgs, cur) {
   const clientMsgs = msgs.filter(m => m.from === "cliente");
   const t = clientMsgs.map(m => m.text || "").join("\n");
   const updated = { ...cur };
 
-  // Parsear respostas numeradas do formulário automático
   const lines = t.split(/\n/);
   for (const line of lines) {
-    const trim = line.trim();
+    const clean = line.replace(/\*/g, "").trim();
 
-    // 1. Nome / empresa
-    if (/^1[\.\)]\s*/i.test(trim)) {
-      const val = trim.replace(/^1[\.\)]\s*/i, "").trim();
-      if (val) {
-        const parts = val.split(/[\/\-\|]/).map(p => p.trim()).filter(Boolean);
-        if (parts[0] && !updated.nome) updated.nome = parts[0];
-        if (parts[1] && !updated.empresa) updated.empresa = parts[1];
+    // 1. Nome / empresa — resposta após "?"
+    if (/^1[\.\)]/.test(clean)) {
+      const ans = answerOf(clean);
+      if (ans) {
+        // Tenta "Nome / Empresa"
+        const slash = ans.split(/[\/\|]/).map(p => p.trim()).filter(Boolean);
+        if (slash.length >= 2) {
+          if (!updated.nome) updated.nome = slash[0];
+          if (!updated.empresa) updated.empresa = slash[1];
+        } else {
+          // Tenta "Nome do/da Empresa"
+          const m = ans.match(/^(.+?)\s+(?:do|da|de|dos|das)\s+(.+)$/i);
+          if (m) {
+            if (!updated.nome) updated.nome = m[1].trim();
+            if (!updated.empresa) updated.empresa = m[2].trim();
+          } else {
+            if (!updated.nome) updated.nome = ans;
+          }
+        }
       }
     }
-    // 2. Tipo (temporário ou fixo)
-    if (/^2[\.\)]\s*/i.test(trim)) {
-      const val = trim.replace(/^2[\.\)]\s*/i, "").trim();
-      if (val && !updated.tipo) {
-        if (/temporário|temporario|evento|locação|locacao/i.test(val)) updated.tipo = "Evento temporário";
-        else if (/fix[ao]|permanente|instalação|instalacao/i.test(val)) updated.tipo = "Instalação fixa";
-        else updated.tipo = val;
+
+    // 2. Tipo — resposta após "?" (evita pegar a palavra da pergunta)
+    if (/^2[\.\)]/.test(clean)) {
+      const ans = answerOf(clean);
+      if (ans && !updated.tipo) {
+        if (/fix[ao]|permanente|instalação|instalacao/i.test(ans)) updated.tipo = "Instalação fixa";
+        else if (/temporário|temporario|evento|locação|locacao/i.test(ans)) updated.tipo = "Evento temporário";
+        else if (ans.length > 1) updated.tipo = ans;
       }
     }
-    // 3. Solução
-    if (/^3[\.\)]\s*/i.test(trim)) {
-      const val = trim.replace(/^3[\.\)]\s*/i, "").trim();
-      if (val && !updated.produto) updated.produto = val;
+
+    // 3. Solução — resposta após "?"
+    if (/^3[\.\)]/.test(clean)) {
+      const ans = answerOf(clean);
+      // Remove texto da pergunta entre parênteses
+      const cleaned = ans.replace(/\(.*?\)/g, "").trim();
+      if (cleaned && !updated.produto) updated.produto = cleaned;
     }
-    // 4. Data / local
-    if (/^4[\.\)]\s*/i.test(trim)) {
-      const val = trim.replace(/^4[\.\)]\s*/i, "").trim();
-      if (val) {
-        const parts = val.split(/[\/\-\|,]/).map(p => p.trim()).filter(Boolean);
-        if (parts[0] && !updated.prazo) updated.prazo = parts[0];
+
+    // 4. Data / local — resposta após "?"
+    if (/^4[\.\)]/.test(clean)) {
+      const ans = answerOf(clean);
+      if (ans) {
+        const parts = ans.split(/[\/\-\|,]/).map(p => p.trim()).filter(Boolean);
+        if (!updated.prazo) updated.prazo = parts[0];
         if (parts[1] && !updated.cidade) updated.cidade = parts[1];
-        else if (!parts[1] && !updated.cidade) updated.cidade = val;
+        else if (!parts[1] && !updated.cidade) updated.cidade = ans;
       }
     }
-    // 5. Período de locação
-    if (/^5[\.\)]\s*/i.test(trim)) {
-      const val = trim.replace(/^5[\.\)]\s*/i, "").trim();
-      if (val && !updated.periodo) updated.periodo = val;
+
+    // 5. Período
+    if (/^5[\.\)]/.test(clean)) {
+      const ans = answerOf(clean);
+      if (ans && ans.length > 1 && !updated.periodo) updated.periodo = ans;
     }
-    // 6. Orçamento
-    if (/^6[\.\)]\s*/i.test(trim)) {
-      const val = trim.replace(/^6[\.\)]\s*/i, "").trim();
-      if (val && !updated.orcamento) updated.orcamento = val;
+
+    // 6. Orçamento — resposta após "?"
+    if (/^6[\.\)]/.test(clean)) {
+      const ans = answerOf(clean);
+      if (ans && ans.length > 1 && !updated.orcamento) updated.orcamento = ans;
     }
+
     // 7. Telefone / e-mail
-    if (/^7[\.\)]\s*/i.test(trim)) {
-      const val = trim.replace(/^7[\.\)]\s*/i, "").trim();
-      const emailM = val.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
+    if (/^7[\.\)]/.test(clean)) {
+      const ans = answerOf(clean);
+      const emailM = ans.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
       if (emailM && !updated.email) updated.email = emailM[0];
-      const phoneM = val.match(/\d[\d\s\-\(\)]{7,}/);
+      const phoneM = ans.replace(/[^\d\s\-\+\(\)]/g, "").match(/[\d\s\-\+\(\)]{8,}/);
       if (phoneM && !updated.telefone) updated.telefone = phoneM[0].trim();
     }
   }
 
-  // Extração livre — complementa o que não veio do formulário
+  // Extração livre como fallback
   if (!updated.email) {
     const m = t.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
     if (m) updated.email = m[0];
@@ -183,12 +209,8 @@ function extractLead(msgs, cur) {
     if (m) updated.orcamento = m[0];
   }
   if (!updated.prazo) {
-    const m = t.match(/\d{1,2}[\s\/\-](?:de\s+)?(?:janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|\d{1,2})(?:[\s\/\-]\d{2,4})?/i);
+    const m = t.match(/(?:janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s*(?:de\s*)?\d{4}/i);
     if (m) updated.prazo = m[0];
-  }
-  if (!updated.tipo) {
-    if (/temporário|temporario|locação|locacao/i.test(t)) updated.tipo = "Evento temporário";
-    else if (/instalação\s+fixa|permanente|museu|memorial/i.test(t)) updated.tipo = "Instalação fixa";
   }
   if (!updated.produto) {
     const solucoes = ["Projeção Mapeada","Sphere 360","Realidade Aumentada","Realidade Virtual","Raio-X Interativo","Parede Interativa","Holografia","Display Holográfico","Sala Imersiva","PixelDome","DOOH","FOOH","Motion Graphics"];
@@ -197,9 +219,9 @@ function extractLead(msgs, cur) {
     }
   }
 
-  // Flags de qualificação
+  // Flags de qualificação (usadas no score)
   updated.intencao = /quanto custa|orçamento|valor|preço|quero|preciso|interesse/i.test(t);
-  updated.evento = /evento|show|formatura|festa|lançamento|feira|congresso|temporário|temporario/i.test(t);
+  updated.evento = /evento|show|formatura|festa|lançamento|feira|congresso/i.test(t);
   updated.projeto = /projeto|instalação|instalacao|museu|memorial|corporativo|fachada|mapping|fixa|permanente/i.test(t);
 
   return updated;
