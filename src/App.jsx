@@ -119,9 +119,9 @@ function buildResumo(msgs, ld, score, attachments) {
     `• Timing: ${ld.prazo || "—"}`, ``,
     `*📝 HISTÓRICO (últimas mensagens)*`,
     ...msgs.slice(-5).map(m => {
-      if (m.type === "image") return `[${m.from === "cliente" ? "C" : "D"}] 🖼 Imagem: ${m.fileName || "sem nome"}`;
-      if (m.type === "doc") return `[${m.from === "cliente" ? "C" : "D"}] 📎 Arquivo: ${m.fileName || "sem nome"}`;
-      return `[${m.from === "cliente" ? "C" : "D"}] ${(m.text || "").slice(0, 90)}`;
+      if (m.type === "image") return `[${m.from === "cliente" ? "Cliente" : "Aurora"}] 🖼 Imagem: ${m.fileName || "sem nome"}`;
+      if (m.type === "doc") return `[${m.from === "cliente" ? "Cliente" : "Aurora"}] 📎 Arquivo: ${m.fileName || "sem nome"}`;
+      return `[${m.from === "cliente" ? "Cliente" : "Aurora"}] ${(m.text || "").slice(0, 90)}`;
     }),
     hasAttach ? `` : null,
     hasAttach ? `*📂 ANEXOS ENVIADOS (${attachments.length})*` : null,
@@ -132,6 +132,19 @@ function buildResumo(msgs, ld, score, attachments) {
 }
 
 // ─── EVOLUTION API ───────────────────────────────────────────────────────────
+
+// Envia mensagem para o CLIENTE (assinada como Aurora)
+async function sendToClient(cfg, waJid, text) {
+  const number = waJid || "";
+  const r = await fetch(`${cfg.evoUrl}/message/sendText/${cfg.instance}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: cfg.evoKey },
+    body: JSON.stringify({ number, text }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+}
+
+// Envia resumo para o GRUPO interno
 async function sendTextEvolution(cfg, text) {
   const r = await fetch(`${cfg.evoUrl}/message/sendText/${cfg.instance}`, {
     method: "POST",
@@ -142,12 +155,7 @@ async function sendTextEvolution(cfg, text) {
 }
 
 async function sendMediaEvolution(cfg, attachment) {
-  // Send as base64 media
-  const endpoint = attachment.type === "image"
-    ? `${cfg.evoUrl}/message/sendMedia/${cfg.instance}`
-    : `${cfg.evoUrl}/message/sendMedia/${cfg.instance}`;
-
-  const r = await fetch(endpoint, {
+  const r = await fetch(`${cfg.evoUrl}/message/sendMedia/${cfg.instance}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", apikey: cfg.evoKey },
     body: JSON.stringify({
@@ -160,6 +168,31 @@ async function sendMediaEvolution(cfg, attachment) {
     }),
   });
   if (!r.ok) throw new Error(await r.text());
+}
+
+// Transcreve áudio via Gemini
+async function transcribeAudio(geminiKey, base64, mimeType) {
+  try {
+    const r = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{
+            role: "user",
+            parts: [
+              { inline_data: { mime_type: mimeType || "audio/ogg", data: base64 } },
+              { text: "Transcreva exatamente o que foi dito neste áudio em português. Retorne apenas a transcrição, sem comentários." }
+            ]
+          }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 500 }
+        })
+      }
+    );
+    const data = await r.json();
+    return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "[não foi possível transcrever]";
+  } catch { return "[erro na transcrição]"; }
 }
 
 // ─── FILE UTILS ──────────────────────────────────────────────────────────────
@@ -222,7 +255,7 @@ function Avatar({ name, size = 40, gradient = false }) {
 
 // ─── MESSAGE BUBBLE ──────────────────────────────────────────────────────────
 function MessageBubble({ msg, showAvatar, clientName }) {
-  const isClient = msg.from === "cliente";
+  const isClient = msg.from === "cliente"; const isAurora = msg.from === "aurora" || msg.from === "denise";
   const [imgExpanded, setImgExpanded] = useState(false);
 
   const renderContent = () => {
@@ -286,7 +319,7 @@ function MessageBubble({ msg, showAvatar, clientName }) {
           </div>
         </div>
       </div>
-      {!isClient && <div style={{ width: 28, flexShrink: 0 }}>{showAvatar && <Avatar name="Denise" size={28} />}</div>}
+      {!isClient && <div style={{ width: 28, flexShrink: 0 }}>{showAvatar && <Avatar name="Aurora" size={28} gradient />}</div>}
     </div>
   );
 }
@@ -488,7 +521,24 @@ export default function AuroraAgent() {
           lastMsgIdsSeen.current.add(msgId);
           const from = m.key?.remoteJid || "";
           const name = m.pushName || from.replace("@s.whatsapp.net", "");
-          const text = m.message?.conversation || m.message?.extendedTextMessage?.text || m.message?.imageMessage?.caption || "[mídia]";
+          // Detecta tipo de mensagem
+          let text = m.message?.conversation || m.message?.extendedTextMessage?.text || "[mídia]";
+          let msgType = "text";
+          let audioBase64 = null;
+          let audioMime = null;
+          if (m.message?.audioMessage || m.message?.pttMessage) {
+            msgType = "audio";
+            text = "🎤 [áudio recebido — transcrevendo...]";
+            // Tenta pegar base64 do áudio se disponível
+            audioBase64 = m.message?.audioMessage?.base64 || m.message?.pttMessage?.base64 || null;
+            audioMime = m.message?.audioMessage?.mimetype || "audio/ogg";
+          } else if (m.message?.imageMessage) {
+            msgType = "image";
+            text = m.message.imageMessage.caption || "🖼 [imagem]";
+          } else if (m.message?.documentMessage) {
+            msgType = "doc";
+            text = m.message.documentMessage.caption || `📎 ${m.message.documentMessage.fileName || "documento"}`;
+          }
           const phone = from.replace("@s.whatsapp.net", "").replace("@g.us", "");
           const msgTime = m.messageTimestamp ? new Date(m.messageTimestamp * 1000) : new Date();
           const timeStr = String(msgTime.getHours()).padStart(2,"0") + ":" + String(msgTime.getMinutes()).padStart(2,"0");
@@ -504,7 +554,7 @@ export default function AuroraAgent() {
               } : c);
             } else {
               return [{ id: Date.now() + Math.random(), name, phone, waJid: from, lastMsg: text.slice(0,40), time: timeStr, unread: 1,
-                messages: [{ from: "cliente", text, time: timeStr, id: Date.now(), type: "text", waId: msgId }],
+                messages: [{ from: "cliente", text, time: timeStr, id: Date.now(), type: msgType, waId: msgId }],
                 leadData: {}, attachments: [] }, ...cs];
             }
           });
@@ -570,12 +620,23 @@ export default function AuroraAgent() {
     setLoading(false);
   }
 
-  function confirmSend() {
+  const [sending, setSending] = useState(false);
+  const [sendErr, setSendErr] = useState("");
+
+  async function confirmSend() {
     if (!editedSug.trim() || !active) return;
-    const msg = { from: "denise", text: editedSug.trim(), time: ts(), id: Date.now(), type: "text" };
+    setSending(true); setSendErr("");
+    const text = editedSug.trim();
+    const msg = { from: "aurora", text, time: ts(), id: Date.now(), type: "text" };
     const newMsgs = [...msgs, msg];
-    updateConvo(activeId, { messages: newMsgs, lastMsg: editedSug.trim().slice(0, 40), time: ts() });
+    updateConvo(activeId, { messages: newMsgs, lastMsg: text.slice(0, 40), time: ts() });
     setSuggestion(null); setEditedSug("");
+    // Envia para o cliente via WhatsApp se tiver waJid
+    if (cfg.evoUrl && cfg.evoKey && cfg.instance && active.waJid) {
+      try { await sendToClient(cfg, active.waJid, text); }
+      catch (e) { setSendErr("Enviado no chat mas falhou no WhatsApp: " + e.message); }
+    }
+    setSending(false);
   }
 
   async function handleSendResumo() {
@@ -772,8 +833,9 @@ export default function AuroraAgent() {
                         style={{ flex: 1, background: copied ? "#00a88422" : "#2a3942", color: copied ? W.green : W.sub, border: copied ? `1px solid ${W.green}44` : "none", borderRadius: 8, padding: "8px 0", fontSize: 12.5, cursor: "pointer", fontWeight: 600, transition: "all .2s" }}>
                         {copied ? "✓ Copiado!" : "📋 Copiar"}
                       </button>
-                      <button onClick={confirmSend} style={{ flex: 2, background: W.green, color: "#fff", border: "none", borderRadius: 8, padding: "8px 0", fontSize: 12.5, cursor: "pointer", fontWeight: 700 }}>
-                        ✓ Confirmar no chat
+                      <button onClick={confirmSend} disabled={sending}
+                        style={{ flex: 2, background: sending ? "#2a3942" : W.green, color: "#fff", border: "none", borderRadius: 8, padding: "8px 0", fontSize: 12.5, cursor: sending ? "not-allowed" : "pointer", fontWeight: 700 }}>
+                        {sending ? "Enviando..." : active?.waJid ? "✓ Enviar como Aurora" : "✓ Confirmar no chat"}
                       </button>
                     </div>
                   </div>
