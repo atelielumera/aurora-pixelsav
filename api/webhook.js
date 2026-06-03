@@ -66,7 +66,12 @@ export default async function handler(req, res) {
       mimeType = msg.documentMessage.mimetype || "application/octet-stream";
       mediaBase64 = msg.documentMessage.base64 || null;
     }
-    else if (msg.audioMessage || msg.pttMessage) { type = "audio"; text = "🎤 áudio"; }
+    else if (msg.audioMessage || msg.pttMessage) {
+      const aud = msg.audioMessage || msg.pttMessage;
+      type = "audio"; text = "🎤 áudio";
+      mimeType = aud.mimetype || "audio/ogg";
+      mediaBase64 = aud.base64 || null;
+    }
     else { type = "text"; text = "[mensagem]"; }
 
     await addMsg({
