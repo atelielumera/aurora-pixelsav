@@ -488,23 +488,35 @@ export default function App() {
   async function createInstance() {
     if (!waInstanceInput.trim() || !cfg.evoUrl || !cfg.evoKey) return;
     setWaState("loading");
+    const instanceName = waInstanceInput.trim();
+    // salva o nome da instância em cfg para refreshQr poder usar
+    const newCfg = { ...cfg, instance: instanceName };
+    setCfg(newCfg);
+    cfgRef.current = newCfg;
+    try { localStorage.setItem("aurora_cfg", JSON.stringify(newCfg)); } catch {}
     try {
       await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `instance/create` })}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instanceName: waInstanceInput.trim(), token: cfg.evoKey, qrcode: true })
+        body: JSON.stringify({ instanceName, token: cfg.evoKey, qrcode: true })
       });
-      await refreshQr();
+      await refreshQrFor(instanceName, newCfg);
     } catch { setWaState("form"); }
   }
 
   async function refreshQr() {
-    if (!cfg.evoUrl || !cfg.evoKey || !cfg.instance) return;
+    await refreshQrFor(cfg.instance, cfg);
+  }
+
+  async function refreshQrFor(instanceName, currentCfg) {
+    if (!currentCfg.evoUrl || !currentCfg.evoKey || !instanceName) { setWaState("form"); return; }
     try {
-      const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `instance/connect/${cfg.instance}` })}`);
+      const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `instance/connect/${instanceName}` })}`);
       const d = await r.json();
-      if (d.base64) { setWaQr(d.base64); setWaState("qr"); }
-      else if (d.instance?.state === "open") { setWaConnectedName(cfg.instance); setWaState("connected"); }
-      else setWaState("qr");
+      // Evolution API pode retornar base64 direto, dentro de qrcode, ou como code
+      const qrBase64 = d.base64 || d.qrcode?.base64 || d.code || "";
+      if (qrBase64) { setWaQr(qrBase64); setWaState("qr"); }
+      else if (d.instance?.state === "open" || d.state === "open") { setWaConnectedName(instanceName); setWaState("connected"); }
+      else { setWaQr(""); setWaState("qr"); }
     } catch { setWaState("form"); }
   }
 
@@ -586,17 +598,23 @@ export default function App() {
 
             {waState === "form" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {(!cfg.evoUrl || !cfg.evoKey) && (
+                  <div style={{ background: "#ef444415", border: "1px solid #ef444440", borderRadius: 8, padding: "10px 12px", color: "#ef4444", fontSize: 13 }}>
+                    ⚠️ Preencha Evolution URL e API Key em ⚙️ primeiro.
+                  </div>
+                )}
                 <input value={waInstanceInput} onChange={e => setWaInstanceInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && createInstance()}
                   placeholder="Nome da instância (ex: pixelsav-comercial)"
                   style={{ background: W.inputBg, border: "none", borderRadius: 8, padding: "10px 14px", color: W.text, fontSize: 14, outline: "none" }} />
-                <button onClick={createInstance}
-                  style={{ background: W.green, border: "none", borderRadius: 8, padding: "11px 0", color: "#fff", fontWeight: 700, fontSize: 14 }}>
+                <button onClick={createInstance} disabled={!cfg.evoUrl || !cfg.evoKey || !waInstanceInput.trim()}
+                  style={{ background: W.green, border: "none", borderRadius: 8, padding: "11px 0", color: "#fff", fontWeight: 700, fontSize: 14, opacity: (!cfg.evoUrl || !cfg.evoKey || !waInstanceInput.trim()) ? .5 : 1 }}>
                   Criar e gerar QR Code
                 </button>
                 {cfg.instance && (
                   <button onClick={refreshQr}
                     style={{ background: W.inputBg, border: "none", borderRadius: 8, padding: "10px 0", color: W.text, fontSize: 13 }}>
-                    Verificar instância existente
+                    Verificar instância: {cfg.instance}
                   </button>
                 )}
               </div>
