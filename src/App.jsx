@@ -330,20 +330,23 @@ function WhatsAppPanel({ cfg, onSaveInstance, onClose }) {
     if (!instanceName.trim()) return;
     if (!cfg.evoUrl || !cfg.evoKey) { setErrorMsg("Configure a Evolution API URL e API Key em ⚙️ primeiro."); setStatus("error"); return; }
     setStatus("creating"); setErrorMsg(""); setQrCode(null);
+    const name = instanceName.trim();
     try {
+      // Tenta criar — se já existir (409), ignora e vai direto pro QR
       const r = await fetch(`${cfg.evoUrl}/instance/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: cfg.evoKey },
-        body: JSON.stringify({ instanceName: instanceName.trim(), qrcode: true, integration: "WHATSAPP-BAILEYS" }),
+        body: JSON.stringify({ instanceName: name, qrcode: true, integration: "WHATSAPP-BAILEYS" }),
       });
       const data = await r.json();
-      if (!r.ok) throw new Error(data.message || data.error || JSON.stringify(data));
-      // Save instance name
-      try { localStorage.setItem("aurora_wa_instance", instanceName.trim()); } catch {}
-      onSaveInstance(instanceName.trim());
+      // 409 = já existe, tudo bem — continua
+      if (!r.ok && r.status !== 409) throw new Error(data.message || data.error || JSON.stringify(data));
+      try { localStorage.setItem("aurora_wa_instance", name); } catch {}
+      onSaveInstance(name);
+      // Força geração do QR
       setStatus("qr");
-      await fetchQRFor(instanceName.trim());
-      startPolling(instanceName.trim());
+      await fetchQRFor(name);
+      startPolling(name);
     } catch (e) { setErrorMsg(e.message); setStatus("error"); }
   }
 
@@ -383,6 +386,7 @@ function WhatsAppPanel({ cfg, onSaveInstance, onClose }) {
   }
 
   async function deleteInstance() {
+    if (!window.confirm(`Tem certeza que quer EXCLUIR a instância "${instanceName}"? Isso é permanente.`)) return;
     try {
       await fetch(`${cfg.evoUrl}/instance/delete/${instanceName.trim()}`, { method: "DELETE", headers: { apikey: cfg.evoKey } });
       setStatus("idle"); setQrCode(null); setInstanceName("");
