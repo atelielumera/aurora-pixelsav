@@ -107,14 +107,102 @@ function scoreInfo(s) {
 }
 
 function extractLead(msgs, cur) {
-  const t = msgs.map(m => m.text || "").join(" ");
-  return {
-    ...cur,
-    intencao: /quanto custa|orçamento|valor|preço/i.test(t),
-    evento: /evento|show|formatura|festa|lançamento|feira|congresso/i.test(t),
-    projeto: /projeto|instalação|museu|memorial|corporativo|fachada|mapping/i.test(t),
-    prazo: /janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|\d{4}|semana|urgente/i.test(t),
-  };
+  const clientMsgs = msgs.filter(m => m.from === "cliente");
+  const t = clientMsgs.map(m => m.text || "").join("\n");
+  const updated = { ...cur };
+
+  // Parsear respostas numeradas do formulário automático
+  const lines = t.split(/\n/);
+  for (const line of lines) {
+    const trim = line.trim();
+
+    // 1. Nome / empresa
+    if (/^1[\.\)]\s*/i.test(trim)) {
+      const val = trim.replace(/^1[\.\)]\s*/i, "").trim();
+      if (val) {
+        const parts = val.split(/[\/\-\|]/).map(p => p.trim()).filter(Boolean);
+        if (parts[0] && !updated.nome) updated.nome = parts[0];
+        if (parts[1] && !updated.empresa) updated.empresa = parts[1];
+      }
+    }
+    // 2. Tipo (temporário ou fixo)
+    if (/^2[\.\)]\s*/i.test(trim)) {
+      const val = trim.replace(/^2[\.\)]\s*/i, "").trim();
+      if (val && !updated.tipo) {
+        if (/temporário|temporario|evento|locação|locacao/i.test(val)) updated.tipo = "Evento temporário";
+        else if (/fix[ao]|permanente|instalação|instalacao/i.test(val)) updated.tipo = "Instalação fixa";
+        else updated.tipo = val;
+      }
+    }
+    // 3. Solução
+    if (/^3[\.\)]\s*/i.test(trim)) {
+      const val = trim.replace(/^3[\.\)]\s*/i, "").trim();
+      if (val && !updated.produto) updated.produto = val;
+    }
+    // 4. Data / local
+    if (/^4[\.\)]\s*/i.test(trim)) {
+      const val = trim.replace(/^4[\.\)]\s*/i, "").trim();
+      if (val) {
+        const parts = val.split(/[\/\-\|,]/).map(p => p.trim()).filter(Boolean);
+        if (parts[0] && !updated.prazo) updated.prazo = parts[0];
+        if (parts[1] && !updated.cidade) updated.cidade = parts[1];
+        else if (!parts[1] && !updated.cidade) updated.cidade = val;
+      }
+    }
+    // 5. Período de locação
+    if (/^5[\.\)]\s*/i.test(trim)) {
+      const val = trim.replace(/^5[\.\)]\s*/i, "").trim();
+      if (val && !updated.periodo) updated.periodo = val;
+    }
+    // 6. Orçamento
+    if (/^6[\.\)]\s*/i.test(trim)) {
+      const val = trim.replace(/^6[\.\)]\s*/i, "").trim();
+      if (val && !updated.orcamento) updated.orcamento = val;
+    }
+    // 7. Telefone / e-mail
+    if (/^7[\.\)]\s*/i.test(trim)) {
+      const val = trim.replace(/^7[\.\)]\s*/i, "").trim();
+      const emailM = val.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
+      if (emailM && !updated.email) updated.email = emailM[0];
+      const phoneM = val.match(/\d[\d\s\-\(\)]{7,}/);
+      if (phoneM && !updated.telefone) updated.telefone = phoneM[0].trim();
+    }
+  }
+
+  // Extração livre — complementa o que não veio do formulário
+  if (!updated.email) {
+    const m = t.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
+    if (m) updated.email = m[0];
+  }
+  if (!updated.telefone) {
+    const m = t.match(/(?:\+?55\s?)?(?:\(?\d{2}\)?\s?)\d{4,5}[-\s]?\d{4}/);
+    if (m) updated.telefone = m[0].trim();
+  }
+  if (!updated.orcamento) {
+    const m = t.match(/R\$\s*[\d.,]+(?:\s*(?:mil|k|M|mi))?/i);
+    if (m) updated.orcamento = m[0];
+  }
+  if (!updated.prazo) {
+    const m = t.match(/\d{1,2}[\s\/\-](?:de\s+)?(?:janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|\d{1,2})(?:[\s\/\-]\d{2,4})?/i);
+    if (m) updated.prazo = m[0];
+  }
+  if (!updated.tipo) {
+    if (/temporário|temporario|locação|locacao/i.test(t)) updated.tipo = "Evento temporário";
+    else if (/instalação\s+fixa|permanente|museu|memorial/i.test(t)) updated.tipo = "Instalação fixa";
+  }
+  if (!updated.produto) {
+    const solucoes = ["Projeção Mapeada","Sphere 360","Realidade Aumentada","Realidade Virtual","Raio-X Interativo","Parede Interativa","Holografia","Display Holográfico","Sala Imersiva","PixelDome","DOOH","FOOH","Motion Graphics"];
+    for (const s of solucoes) {
+      if (new RegExp(s, "i").test(t)) { updated.produto = s; break; }
+    }
+  }
+
+  // Flags de qualificação
+  updated.intencao = /quanto custa|orçamento|valor|preço|quero|preciso|interesse/i.test(t);
+  updated.evento = /evento|show|formatura|festa|lançamento|feira|congresso|temporário|temporario/i.test(t);
+  updated.projeto = /projeto|instalação|instalacao|museu|memorial|corporativo|fachada|mapping|fixa|permanente/i.test(t);
+
+  return updated;
 }
 
 // ─── AVATAR COLOR ─────────────────────────────────────────────────────────────
@@ -393,7 +481,8 @@ export default function App() {
               }
               const msgSaudacao = { from: "aurora", text: SAUDACAO, time: timeStr, id: Date.now() + Math.random(), type: "text" };
               setActiveId(novoId);
-              return [{ id: novoId, name, phone, waJid: from, lastMsg: text.slice(0, 40), time: timeStr, unread: 0, messages: [msgSaudacao, novaMsg], leadData: extractLead([novaMsg], {}), attachments: [], paused: false }, ...cs];
+              const initialLead = extractLead([novaMsg], { nome: name !== phone ? name : "" });
+              return [{ id: novoId, name, phone, waJid: from, lastMsg: text.slice(0, 40), time: timeStr, unread: 0, messages: [msgSaudacao, novaMsg], leadData: initialLead, attachments: [], paused: false }, ...cs];
             }
           });
 
