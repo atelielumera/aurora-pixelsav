@@ -321,7 +321,7 @@ export default function App() {
     if(cdownRef.current) clearInterval(cdownRef.current);
 
     let seg=30;
-    setCountdown(seg);
+    console.log('COUNTDOWN INICIADO'); setCountdown(seg);
     cdownRef.current=setInterval(()=>{
       seg-=1;
       setCountdown(seg>0?seg:null);
@@ -419,7 +419,7 @@ export default function App() {
               const convo=convosRef.current.find(c=>c.waJid===from||c.phone===phone);
               if(!convo||convo.paused) return;
               setActiveId(convo.id);
-              dispararTimer(from, convo.id);
+              console.log('TIMER DISPARADO para', from, convo.id); dispararTimer(from, convo.id);
             },200);
           }
         }
