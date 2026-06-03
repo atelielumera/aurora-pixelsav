@@ -523,9 +523,29 @@ export default function AuroraAgent() {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [convos, activeId, suggestion, loading]);
 
   // Webhook polling — busca mensagens do /api/webhook a cada 3s
+  // e gera sugestão automática da Aurora para cada mensagem nova
+  const cfgRef = useRef(cfg);
+  useEffect(() => { cfgRef.current = cfg; }, [cfg]);
+
   useEffect(() => {
     if (waPollingRef.current) clearInterval(waPollingRef.current);
     let lastTs = Date.now() - 30000;
+
+    const gerarSugestao = async (allMsgs, isNovo) => {
+      const currentCfg = cfgRef.current;
+      if (!currentCfg.geminiKey) return;
+      try {
+        // Se é cliente novo, primeira mensagem = boas-vindas
+        let sug = "";
+        if (isNovo) {
+          sug = "Olá! Seja bem-vindo(a) ao atendimento da PixelSAV! 😊 Sou a Aurora, sua consultora de experiências imersivas. Como posso te ajudar hoje?";
+        } else {
+          sug = await callGemini(currentCfg.geminiKey, allMsgs);
+        }
+        setSuggestion(sug);
+        setEditedSug(sug);
+      } catch {}
+    };
 
     const poll = async () => {
       try {
@@ -534,7 +554,8 @@ export default function AuroraAgent() {
         const data = await r.json();
         if (!data.messages?.length) { lastTs = data.ts || Date.now(); return; }
         lastTs = data.ts || Date.now();
-        data.messages.forEach(m => {
+
+        for (const m of data.messages) {
           const msgId = m.id;
           if (!msgId || lastMsgIdsSeen.current.has(msgId)) return;
           lastMsgIdsSeen.current.add(msgId);
@@ -545,22 +566,30 @@ export default function AuroraAgent() {
           const text = m.text || "[mídia]";
           const msgTime = m.timestamp ? new Date(m.timestamp * 1000) : new Date();
           const timeStr = String(msgTime.getHours()).padStart(2,"0") + ":" + String(msgTime.getMinutes()).padStart(2,"0");
+          const novaMsg = { from:"cliente", text, time:timeStr, id:Date.now()+Math.random(), type:msgType, waId:msgId };
+
           setConvos(cs => {
             const existing = cs.find(c => c.phone === phone || c.waJid === from);
             if (existing) {
               if (existing.messages.some(em => em.waId === msgId)) return cs;
+              const newMsgs = [...existing.messages, novaMsg];
+              // Gera sugestão se for a conversa ativa
+              setTimeout(() => gerarSugestao(newMsgs, false), 100);
               return cs.map(c => c.id === existing.id ? {
-                ...c,
-                messages: [...c.messages, { from:"cliente", text, time:timeStr, id:Date.now()+Math.random(), type:msgType, waId:msgId }],
+                ...c, messages: newMsgs,
                 lastMsg: text.slice(0,40), time: timeStr, unread: (c.unread||0)+1,
               } : c);
             } else {
-              return [{ id:Date.now()+Math.random(), name, phone, waJid:from, lastMsg:text.slice(0,40), time:timeStr, unread:1,
-                messages:[{ from:"cliente", text, time:timeStr, id:Date.now(), type:msgType, waId:msgId }],
-                leadData:{}, attachments:[] }, ...cs];
+              const newMsgs = [novaMsg];
+              // Nova conversa — gera saudação automática
+              setTimeout(() => gerarSugestao(newMsgs, true), 100);
+              const novoId = Date.now()+Math.random();
+              setActiveId(novoId);
+              return [{ id:novoId, name, phone, waJid:from, lastMsg:text.slice(0,40), time:timeStr, unread:1,
+                messages:newMsgs, leadData:{}, attachments:[] }, ...cs];
             }
           });
-        });
+        }
       } catch {}
     };
     poll();
