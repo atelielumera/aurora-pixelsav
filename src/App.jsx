@@ -502,69 +502,52 @@ export default function AuroraAgent() {
   }, []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [convos, activeId, suggestion, loading]);
 
-  // WhatsApp polling — busca mensagens novas a cada 5s
+  // Webhook polling — busca mensagens do /api/webhook a cada 3s
   useEffect(() => {
     if (waPollingRef.current) clearInterval(waPollingRef.current);
-    if (!cfg.evoUrl || !cfg.evoKey || !cfg.instance) return;
+    let lastTs = Date.now() - 30000;
+
     const poll = async () => {
       try {
-        const r = await fetch(`${cfg.evoUrl}/chat/findMessages/${cfg.instance}?count=30`, {
-          headers: { apikey: cfg.evoKey }
-        });
+        const r = await fetch(`/api/webhook?since=${lastTs}`);
         if (!r.ok) return;
         const data = await r.json();
-        const allMsgs = Array.isArray(data) ? data : (data.messages || data.records || []);
-        allMsgs.forEach(m => {
-          if (m.key?.fromMe) return;
-          const msgId = m.key?.id;
+        if (!data.messages?.length) { lastTs = data.ts || Date.now(); return; }
+        lastTs = data.ts || Date.now();
+        data.messages.forEach(m => {
+          const msgId = m.id;
           if (!msgId || lastMsgIdsSeen.current.has(msgId)) return;
           lastMsgIdsSeen.current.add(msgId);
-          const from = m.key?.remoteJid || "";
-          const name = m.pushName || from.replace("@s.whatsapp.net", "");
-          // Detecta tipo de mensagem
-          let text = m.message?.conversation || m.message?.extendedTextMessage?.text || "[mídia]";
-          let msgType = "text";
-          let audioBase64 = null;
-          let audioMime = null;
-          if (m.message?.audioMessage || m.message?.pttMessage) {
-            msgType = "audio";
-            text = "🎤 [áudio recebido — transcrevendo...]";
-            // Tenta pegar base64 do áudio se disponível
-            audioBase64 = m.message?.audioMessage?.base64 || m.message?.pttMessage?.base64 || null;
-            audioMime = m.message?.audioMessage?.mimetype || "audio/ogg";
-          } else if (m.message?.imageMessage) {
-            msgType = "image";
-            text = m.message.imageMessage.caption || "🖼 [imagem]";
-          } else if (m.message?.documentMessage) {
-            msgType = "doc";
-            text = m.message.documentMessage.caption || `📎 ${m.message.documentMessage.fileName || "documento"}`;
-          }
-          const phone = from.replace("@s.whatsapp.net", "").replace("@g.us", "");
-          const msgTime = m.messageTimestamp ? new Date(m.messageTimestamp * 1000) : new Date();
+          const from = m.remoteJid || "";
+          const name = m.pushName || from.replace("@s.whatsapp.net","");
+          const phone = from.replace("@s.whatsapp.net","").replace("@g.us","");
+          const msgType = m.type || "text";
+          const text = m.text || "[mídia]";
+          const msgTime = m.timestamp ? new Date(m.timestamp * 1000) : new Date();
           const timeStr = String(msgTime.getHours()).padStart(2,"0") + ":" + String(msgTime.getMinutes()).padStart(2,"0");
           setConvos(cs => {
             const existing = cs.find(c => c.phone === phone || c.waJid === from);
             if (existing) {
-              const alreadyIn = existing.messages.some(em => em.waId === msgId);
-              if (alreadyIn) return cs;
+              if (existing.messages.some(em => em.waId === msgId)) return cs;
               return cs.map(c => c.id === existing.id ? {
                 ...c,
-                messages: [...c.messages, { from: "cliente", text, time: timeStr, id: Date.now() + Math.random(), type: "text", waId: msgId }],
-                lastMsg: text.slice(0, 40), time: timeStr, unread: (c.unread || 0) + 1,
+                messages: [...c.messages, { from:"cliente", text, time:timeStr, id:Date.now()+Math.random(), type:msgType, waId:msgId }],
+                lastMsg: text.slice(0,40), time: timeStr, unread: (c.unread||0)+1,
               } : c);
             } else {
-              return [{ id: Date.now() + Math.random(), name, phone, waJid: from, lastMsg: text.slice(0,40), time: timeStr, unread: 1,
-                messages: [{ from: "cliente", text, time: timeStr, id: Date.now(), type: msgType, waId: msgId }],
-                leadData: {}, attachments: [] }, ...cs];
+              return [{ id:Date.now()+Math.random(), name, phone, waJid:from, lastMsg:text.slice(0,40), time:timeStr, unread:1,
+                messages:[{ from:"cliente", text, time:timeStr, id:Date.now(), type:msgType, waId:msgId }],
+                leadData:{}, attachments:[] }, ...cs];
             }
           });
         });
       } catch {}
     };
     poll();
-    waPollingRef.current = setInterval(poll, 5000);
+    waPollingRef.current = setInterval(poll, 3000);
     return () => clearInterval(waPollingRef.current);
-  }, [cfg.evoUrl, cfg.evoKey, cfg.instance]);
+  }, []);
+
 
   const active = convos.find(c => c.id === activeId);
   const msgs = active?.messages || [];
