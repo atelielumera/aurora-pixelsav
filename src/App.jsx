@@ -624,7 +624,12 @@ export default function App() {
 
   // ── Buscar mídia da Evolution API ─────────────────────────────────────────
   async function fetchMedia(convoId, msgWaId, remoteJid, msgType, fileName) {
-    if (!cfg.evoUrl || !cfg.evoKey || !cfg.instance) return;
+    if (!cfg.evoUrl || !cfg.evoKey || !cfg.instance) {
+      alert("Configure a Evolution API em ⚙️ primeiro"); return;
+    }
+    if (!msgWaId || !remoteJid) {
+      alert(`Erro: waId=${msgWaId} remoteJid=${remoteJid}`); return;
+    }
     try {
       const r = await fetch("/api/media", {
         method: "POST",
@@ -632,28 +637,30 @@ export default function App() {
         body: JSON.stringify({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, instance: cfg.instance, messageId: msgWaId, remoteJid })
       });
       const d = await r.json();
-      if (d.base64) {
-        const mime = d.mimetype || "application/octet-stream";
-        const b64 = d.base64;
-        const url = `data:${mime};base64,${b64}`;
-        // Para doc: faz download imediato via Blob
-        if (msgType === "doc") {
-          const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-          const blob = new Blob([bytes], { type: mime });
-          const a = document.createElement("a");
-          a.href = URL.createObjectURL(blob);
-          a.download = fileName || "documento";
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-        }
-        setConvos(cs => cs.map(c => c.id !== convoId ? c : {
-          ...c,
-          messages: c.messages.map(m => m.waId === msgWaId ? { ...m, url, mimeType: mime, needsMedia: false } : m)
-        }));
+      if (!d.base64) {
+        alert("Sem base64: " + JSON.stringify(d).slice(0, 200)); return;
       }
-    } catch {}
+      const mime = d.mimetype || "application/octet-stream";
+      const b64 = d.base64;
+      const url = `data:${mime};base64,${b64}`;
+      if (msgType === "doc") {
+        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: mime });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = fileName || "documento";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      }
+      setConvos(cs => cs.map(c => c.id !== convoId ? c : {
+        ...c,
+        messages: c.messages.map(m => m.waId === msgWaId ? { ...m, url, mimeType: mime, needsMedia: false } : m)
+      }));
+    } catch(e) {
+      alert("Erro ao buscar mídia: " + e.message);
+    }
   }
 
   // ── Copiar sugestão ────────────────────────────────────────────────────────
