@@ -581,12 +581,23 @@ export default function AuroraAgent() {
               } : c);
             } else {
               const newMsgs = [novaMsg];
-              // Nova conversa — gera saudação automática
-              setTimeout(() => gerarSugestao(newMsgs, true), 100);
               const novoId = Date.now()+Math.random();
               setActiveId(novoId);
+              // Nova conversa — envia saudação automaticamente via WhatsApp
+              const saudacao = "Olá! Seja bem-vindo(a) ao atendimento da PixelSAV! 😊 Sou a Aurora, sua consultora de experiências imersivas. Como posso te ajudar hoje?";
+              const currentCfg = cfgRef.current;
+              if (currentCfg.evoUrl && currentCfg.evoKey && currentCfg.instance) {
+                fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `message/sendText/${currentCfg.instance}` })}`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ number: from, text: saudacao }),
+                }).catch(() => {});
+              }
+              const msgSaudacao = { from:"aurora", text: saudacao, time: timeStr, id: Date.now()+Math.random(), type:"text" };
+              // Gera sugestão para a mensagem do cliente (após saudação)
+              setTimeout(() => gerarSugestao(newMsgs, false), 500);
               return [{ id:novoId, name, phone, waJid:from, lastMsg:text.slice(0,40), time:timeStr, unread:1,
-                messages:newMsgs, leadData:{}, attachments:[] }, ...cs];
+                messages:[msgSaudacao, novaMsg], leadData:{}, attachments:[] }, ...cs];
             }
           });
         }
