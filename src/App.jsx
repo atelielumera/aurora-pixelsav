@@ -149,8 +149,10 @@ let _timerGlobal = null;
 let _cdownGlobal = null;
 let _onSuggest = null;
 let _onCountdown = null;
+let _onLoading = null;
 let _getConvos = null;
 let _getCfg = null;
+let _getActiveId = null;
 
 function dispararTimerGlobal(waJid, convoId) {
   if (_timerGlobal) clearTimeout(_timerGlobal);
@@ -185,9 +187,13 @@ function dispararTimerGlobal(waJid, convoId) {
     const msgs = convo.messages || [];
     const ultima = msgs[msgs.length - 1];
     if (!ultima || ultima.from !== "cliente") return;
+    if (_onLoading) _onLoading(true);
     callGemini(currentCfg.geminiKey, msgs).then(sug => {
-      if (_onSuggest) _onSuggest(sug);
-    }).catch(() => {});
+      if (_onLoading) _onLoading(false);
+      // Só mostra sugestão se o usuário ainda está na mesma conversa
+      const activeId = _getActiveId ? _getActiveId() : null;
+      if (_onSuggest) _onSuggest(sug, convo.id, activeId);
+    }).catch(() => { if (_onLoading) _onLoading(false); });
   }, 30000);
 }
 
@@ -243,11 +249,17 @@ export default function App() {
   useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
 
   useEffect(() => {
-    _onSuggest = (sug) => { setSuggestion(sug); setEditedSug(sug); };
+    _onSuggest = (sug, targetConvoId, activeIdAtFire) => {
+      // Só mostra se o usuário ainda está na conversa que gerou a sugestão
+      if (activeIdAtFire !== targetConvoId) return;
+      setSuggestion(sug); setEditedSug(sug);
+    };
     _onCountdown = (val) => setCountdown(val);
+    _onLoading = (val) => setLoading(val);
     _getConvos = () => convosRef.current;
     _getCfg = () => cfgRef.current;
-    return () => { _onSuggest = null; _onCountdown = null; _getConvos = null; _getCfg = null; };
+    _getActiveId = () => activeIdRef.current;
+    return () => { _onSuggest = null; _onCountdown = null; _onLoading = null; _getConvos = null; _getCfg = null; _getActiveId = null; };
   }, []);
 
   useEffect(() => {
@@ -936,6 +948,18 @@ export default function App() {
                       </React.Fragment>
                     );
                   })}
+
+                  {/* Loading Gemini após timer */}
+                  {loading && !suggestion && !countdown && !active.paused && (
+                    <div style={{
+                      background: "#0d1f2d", border: "1px solid #00a88433", borderRadius: 10,
+                      padding: "10px 16px", marginTop: 10, display: "flex", alignItems: "center", gap: 10,
+                      animation: "fadeUp .2s ease"
+                    }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: W.green, animation: "pulse 1.2s infinite" }} />
+                      <span style={{ color: W.sub, fontSize: 13 }}>Aurora gerando sugestão...</span>
+                    </div>
+                  )}
 
                   {/* Contador regressivo */}
                   {countdown !== null && !suggestion && !active.paused && (
