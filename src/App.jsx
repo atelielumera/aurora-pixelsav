@@ -48,20 +48,44 @@ TABELA VENDA:
 - R$200k–500k: sala imersiva
 - +R$500k: museus, domos, projetos especiais
 
+DADOS PRIORITÁRIOS A COLETAR (em ordem):
+1. Nome completo e empresa/organização
+2. Telefone e e-mail para contato
+3. Tipo de projeto: evento temporário OU instalação fixa
+4. Solução de interesse (do portfólio acima)
+5. Data/período do evento ou prazo de instalação
+6. Local (cidade/estado/espaço)
+7. Se temporário: período de locação (dias/semanas)
+8. Orçamento disponível (mesmo que aproximado)
+
+SE o cliente ainda não respondeu o formulário de coleta enviado automaticamente, foque em obter essas respostas antes de qualquer outra coisa.
+
 REGRAS CRÍTICAS:
 - Tom WhatsApp: direto, caloroso, máximo 3 linhas por mensagem
-- Nunca mais de 1 pergunta por vez
+- Nunca mais de 1 pergunta por vez (exceto no formulário inicial automático)
 - Nunca inventar preços — usar "a partir de X"
 - Nunca sugerir acima da faixa declarada pelo cliente
 - Sem orçamento declarado → não sugerir solução específica
-- Coletar progressivamente: nome, empresa, tipo (evento/instalação), prazo, orçamento, local
 - Sempre terminar com pergunta ou próximo passo claro
 - Máximo 1 emoji por mensagem
 - Tom consultivo, empático, nunca robótico
 
-FLUXO: Descoberta → Qualificação (PF/PJ) → Locação ou Venda → Orçamento → Apresentação → Próximo passo
+FLUXO: Coleta de dados → Qualificação (PF/PJ) → Locação ou Venda → Orçamento → Apresentação → Próximo passo
 
 RESPONDA APENAS o texto da mensagem. Sem prefixos. Sem explicações. Texto puro.`;
+
+// ─── MENSAGEM DE COLETA DE DADOS (enviada automaticamente 30s após saudação) ──
+const COLETA_MSG = `Para preparar a melhor proposta para você, preciso de algumas informações rápidas 📋
+
+*1.* Seu nome completo e empresa/organização?
+*2.* É para um *evento temporário* ou *instalação fixa*?
+*3.* Qual solução te interessa? (Projeção Mapeada, RA, Holografia, Sala Imersiva...)
+*4.* Data prevista e local do projeto (cidade/estado)?
+*5.* Se temporário, qual o período de locação?
+*6.* Qual o orçamento disponível (mesmo que aproximado)?
+*7.* Telefone e e-mail para contato?
+
+Pode responder no seu tempo, sem pressa! 😊`;
 
 // ─── LEAD SCORE ───────────────────────────────────────────────────────────────
 function scoreCalc(ld) {
@@ -83,14 +107,102 @@ function scoreInfo(s) {
 }
 
 function extractLead(msgs, cur) {
-  const t = msgs.map(m => m.text || "").join(" ");
-  return {
-    ...cur,
-    intencao: /quanto custa|orçamento|valor|preço/i.test(t),
-    evento: /evento|show|formatura|festa|lançamento|feira|congresso/i.test(t),
-    projeto: /projeto|instalação|museu|memorial|corporativo|fachada|mapping/i.test(t),
-    prazo: /janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|\d{4}|semana|urgente/i.test(t),
-  };
+  const clientMsgs = msgs.filter(m => m.from === "cliente");
+  const t = clientMsgs.map(m => m.text || "").join("\n");
+  const updated = { ...cur };
+
+  // Parsear respostas numeradas do formulário automático
+  const lines = t.split(/\n/);
+  for (const line of lines) {
+    const trim = line.trim();
+
+    // 1. Nome / empresa
+    if (/^1[\.\)]\s*/i.test(trim)) {
+      const val = trim.replace(/^1[\.\)]\s*/i, "").trim();
+      if (val) {
+        const parts = val.split(/[\/\-\|]/).map(p => p.trim()).filter(Boolean);
+        if (parts[0] && !updated.nome) updated.nome = parts[0];
+        if (parts[1] && !updated.empresa) updated.empresa = parts[1];
+      }
+    }
+    // 2. Tipo (temporário ou fixo)
+    if (/^2[\.\)]\s*/i.test(trim)) {
+      const val = trim.replace(/^2[\.\)]\s*/i, "").trim();
+      if (val && !updated.tipo) {
+        if (/temporário|temporario|evento|locação|locacao/i.test(val)) updated.tipo = "Evento temporário";
+        else if (/fix[ao]|permanente|instalação|instalacao/i.test(val)) updated.tipo = "Instalação fixa";
+        else updated.tipo = val;
+      }
+    }
+    // 3. Solução
+    if (/^3[\.\)]\s*/i.test(trim)) {
+      const val = trim.replace(/^3[\.\)]\s*/i, "").trim();
+      if (val && !updated.produto) updated.produto = val;
+    }
+    // 4. Data / local
+    if (/^4[\.\)]\s*/i.test(trim)) {
+      const val = trim.replace(/^4[\.\)]\s*/i, "").trim();
+      if (val) {
+        const parts = val.split(/[\/\-\|,]/).map(p => p.trim()).filter(Boolean);
+        if (parts[0] && !updated.prazo) updated.prazo = parts[0];
+        if (parts[1] && !updated.cidade) updated.cidade = parts[1];
+        else if (!parts[1] && !updated.cidade) updated.cidade = val;
+      }
+    }
+    // 5. Período de locação
+    if (/^5[\.\)]\s*/i.test(trim)) {
+      const val = trim.replace(/^5[\.\)]\s*/i, "").trim();
+      if (val && !updated.periodo) updated.periodo = val;
+    }
+    // 6. Orçamento
+    if (/^6[\.\)]\s*/i.test(trim)) {
+      const val = trim.replace(/^6[\.\)]\s*/i, "").trim();
+      if (val && !updated.orcamento) updated.orcamento = val;
+    }
+    // 7. Telefone / e-mail
+    if (/^7[\.\)]\s*/i.test(trim)) {
+      const val = trim.replace(/^7[\.\)]\s*/i, "").trim();
+      const emailM = val.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
+      if (emailM && !updated.email) updated.email = emailM[0];
+      const phoneM = val.match(/\d[\d\s\-\(\)]{7,}/);
+      if (phoneM && !updated.telefone) updated.telefone = phoneM[0].trim();
+    }
+  }
+
+  // Extração livre — complementa o que não veio do formulário
+  if (!updated.email) {
+    const m = t.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
+    if (m) updated.email = m[0];
+  }
+  if (!updated.telefone) {
+    const m = t.match(/(?:\+?55\s?)?(?:\(?\d{2}\)?\s?)\d{4,5}[-\s]?\d{4}/);
+    if (m) updated.telefone = m[0].trim();
+  }
+  if (!updated.orcamento) {
+    const m = t.match(/R\$\s*[\d.,]+(?:\s*(?:mil|k|M|mi))?/i);
+    if (m) updated.orcamento = m[0];
+  }
+  if (!updated.prazo) {
+    const m = t.match(/\d{1,2}[\s\/\-](?:de\s+)?(?:janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro|\d{1,2})(?:[\s\/\-]\d{2,4})?/i);
+    if (m) updated.prazo = m[0];
+  }
+  if (!updated.tipo) {
+    if (/temporário|temporario|locação|locacao/i.test(t)) updated.tipo = "Evento temporário";
+    else if (/instalação\s+fixa|permanente|museu|memorial/i.test(t)) updated.tipo = "Instalação fixa";
+  }
+  if (!updated.produto) {
+    const solucoes = ["Projeção Mapeada","Sphere 360","Realidade Aumentada","Realidade Virtual","Raio-X Interativo","Parede Interativa","Holografia","Display Holográfico","Sala Imersiva","PixelDome","DOOH","FOOH","Motion Graphics"];
+    for (const s of solucoes) {
+      if (new RegExp(s, "i").test(t)) { updated.produto = s; break; }
+    }
+  }
+
+  // Flags de qualificação
+  updated.intencao = /quanto custa|orçamento|valor|preço|quero|preciso|interesse/i.test(t);
+  updated.evento = /evento|show|formatura|festa|lançamento|feira|congresso|temporário|temporario/i.test(t);
+  updated.projeto = /projeto|instalação|instalacao|museu|memorial|corporativo|fachada|mapping|fixa|permanente/i.test(t);
+
+  return updated;
 }
 
 // ─── AVATAR COLOR ─────────────────────────────────────────────────────────────
@@ -222,6 +334,7 @@ export default function App() {
   const [resumoSending, setResumoSending] = useState(false);
   const [resumoErr, setResumoErr] = useState("");
   const [showResumo, setShowResumo] = useState(false);
+  const [sugError, setSugError] = useState("");
 
   const [showLead, setShowLead] = useState(false);
   const [lightbox, setLightbox] = useState(null);
@@ -234,6 +347,7 @@ export default function App() {
   const [waQr, setWaQr] = useState("");
   const [waConnectedName, setWaConnectedName] = useState("");
   const waPollingQrRef = useRef(null);
+  const coletaTimerRef = useRef({});
 
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
@@ -340,14 +454,35 @@ export default function App() {
               const currentCfg = cfgRef.current;
               if (!saudacaoEnviada.current.has(from) && currentCfg.evoUrl && currentCfg.evoKey && currentCfg.instance) {
                 saudacaoEnviada.current.add(from);
+                // 1ª mensagem: saudação imediata
                 fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `message/sendText/${currentCfg.instance}` })}`, {
                   method: "POST", headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({ number: from, text: SAUDACAO })
                 }).catch(() => {});
+                // 2ª mensagem: formulário de coleta após 30s
+                if (!coletaTimerRef.current[from]) {
+                  coletaTimerRef.current[from] = setTimeout(() => {
+                    delete coletaTimerRef.current[from];
+                    const cfg2 = cfgRef.current;
+                    if (!cfg2.evoUrl || !cfg2.evoKey || !cfg2.instance) return;
+                    const msgColeta = { from: "aurora", text: COLETA_MSG, time: timeStr, id: Date.now() + Math.random(), type: "text" };
+                    setConvos(cs2 => cs2.map(c => c.waJid === from ? {
+                      ...c,
+                      messages: [...c.messages, msgColeta],
+                      lastMsg: "📋 Formulário de coleta enviado",
+                      time: timeStr,
+                    } : c));
+                    fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg2.evoUrl, evoKey: cfg2.evoKey, path: `message/sendText/${cfg2.instance}` })}`, {
+                      method: "POST", headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ number: from, text: COLETA_MSG })
+                    }).catch(() => {});
+                  }, 30000);
+                }
               }
               const msgSaudacao = { from: "aurora", text: SAUDACAO, time: timeStr, id: Date.now() + Math.random(), type: "text" };
               setActiveId(novoId);
-              return [{ id: novoId, name, phone, waJid: from, lastMsg: text.slice(0, 40), time: timeStr, unread: 0, messages: [msgSaudacao, novaMsg], leadData: extractLead([novaMsg], {}), attachments: [], paused: false }, ...cs];
+              const initialLead = extractLead([novaMsg], { nome: name !== phone ? name : "" });
+              return [{ id: novoId, name, phone, waJid: from, lastMsg: text.slice(0, 40), time: timeStr, unread: 0, messages: [msgSaudacao, novaMsg], leadData: initialLead, attachments: [], paused: false }, ...cs];
             }
           });
 
@@ -399,10 +534,14 @@ export default function App() {
     const ultima = msgs[msgs.length - 1];
     if (!ultima || ultima.from !== "cliente") return;
     setLoading(true);
+    setSugError("");
     try {
       const sug = await callGemini(cfg.geminiKey, msgs);
+      if (!sug) throw new Error("Gemini retornou resposta vazia");
       setSuggestion(sug); setEditedSug(sug);
-    } catch {}
+    } catch (e) {
+      setSugError(e.message || "Erro ao gerar sugestão");
+    }
     setLoading(false);
   }
 
@@ -801,7 +940,7 @@ export default function App() {
               const isActive = c.id === activeId;
               return (
                 <div key={c.id}
-                  onClick={() => { setActiveId(c.id); updateConvo(c.id, { unread: 0 }); setSuggestion(null); setEditedSug(""); setCountdown(null); setShowResumo(false); }}
+                  onClick={() => { setActiveId(c.id); updateConvo(c.id, { unread: 0 }); setSuggestion(null); setEditedSug(""); setCountdown(null); setShowResumo(false); setSugError(""); }}
                   style={{
                     display: "flex", alignItems: "center", padding: "12px 16px", gap: 12,
                     background: isActive ? W.active : "transparent", cursor: "pointer",
@@ -1025,11 +1164,16 @@ export default function App() {
 
                   {/* Botão gerar sugestão manual */}
                   {msgs.length > 0 && msgs[msgs.length - 1]?.from === "cliente" && !suggestion && countdown === null && !active.paused && cfg.geminiKey && (
-                    <div style={{ marginTop: 10, display: "flex", justifyContent: "center" }}>
+                    <div style={{ marginTop: 10, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
                       <button onClick={generateManual} disabled={loading}
                         style={{ background: "#0d1f2d", border: "1px solid #00a88433", borderRadius: 8, padding: "8px 20px", color: W.green, fontSize: 13, opacity: loading ? .7 : 1 }}>
                         {loading ? "Gerando..." : "✨ Gerar sugestão agora"}
                       </button>
+                      {sugError && (
+                        <div style={{ color: "#ef4444", fontSize: 12, textAlign: "center", maxWidth: 320 }}>
+                          ❌ {sugError}
+                        </div>
+                      )}
                     </div>
                   )}
 
