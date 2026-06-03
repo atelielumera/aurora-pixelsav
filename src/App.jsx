@@ -245,8 +245,10 @@ async function callGemini(apiKey, msgs) {
     body: JSON.stringify({ apiKey, contents, system: AURORA_SYSTEM })
   });
   const d = await r.json();
-  if (d.error) throw new Error(d.error);
-  return d.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+  if (d.error) throw new Error(d.error?.message || d.error?.status || JSON.stringify(d.error));
+  const text = d.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!text) throw new Error("Gemini não retornou texto. Verifique a API Key em ⚙️");
+  return text;
 }
 
 // ─── TIMER GLOBAL (fora do componente) ───────────────────────────────────────
