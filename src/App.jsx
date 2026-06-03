@@ -226,6 +226,7 @@ export default function App() {
   const [showLead, setShowLead] = useState(false);
   const [lightbox, setLightbox] = useState(null);
   const [waError, setWaError] = useState("");
+  const [webhookStatus, setWebhookStatus] = useState("ok"); // ok | error
 
   // WA panel state
   const [waState, setWaState] = useState("form"); // form | loading | qr | connected
@@ -296,7 +297,8 @@ export default function App() {
     const poll = async () => {
       try {
         const r = await fetch(`/api/webhook?since=${lastTs}`);
-        if (!r.ok) return;
+        if (!r.ok) { setWebhookStatus("error"); return; }
+        setWebhookStatus("ok");
         const data = await r.json();
         if (!data.messages?.length) { lastTs = data.ts || Date.now(); return; }
         lastTs = data.ts || Date.now();
@@ -727,7 +729,12 @@ export default function App() {
               display: "flex", alignItems: "center", justifyContent: "center",
               color: "#fff", fontWeight: 700, fontSize: 16, flexShrink: 0
             }}>D</div>
-            <div style={{ flex: 1, color: W.text, fontWeight: 600, fontSize: 15 }}>Denise · PixelSAV</div>
+            <div style={{ flex: 1, color: W.text, fontWeight: 600, fontSize: 15 }}>
+              Denise · PixelSAV
+              <span style={{ marginLeft: 6, fontSize: 9, color: webhookStatus === "ok" ? W.green : "#ef4444" }}>
+                {webhookStatus === "ok" ? "● online" : "● erro"}
+              </span>
+            </div>
             <button onClick={() => { setShowNew(v => !v); setShowCfg(false); }} title="Nova conversa"
               style={{ background: "none", border: "none", color: W.icon, fontSize: 18, padding: "4px 6px", borderRadius: 6 }}>✎</button>
             <button onClick={() => { setShowWA(true); setShowCfg(false); }} title="WhatsApp"
