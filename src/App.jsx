@@ -386,10 +386,8 @@ export default function App() {
   const [crmTag, setCrmTag] = useState("");
   const [tagInputs, setTagInputs] = useState({}); // { [convoId]: string }
 
-  const [convos, setConvos] = useState([
-    { id: 1, name: "Cliente Exemplo", phone: "41 99999-0001", lastMsg: "Oi, vi vocês no Instagram!", time: "09:14", unread: 1, messages: [], leadData: {}, attachments: [], paused: false, waJid: null }
-  ]);
-  const [activeId, setActiveId] = useState(1);
+  const [convos, setConvos] = useState([]);
+  const [activeId, setActiveId] = useState(null);
   const [searchQ, setSearchQ] = useState("");
   const [showNew, setShowNew] = useState(false);
   const [newName, setNewName] = useState("");
@@ -419,6 +417,7 @@ export default function App() {
   const [waConnectedName, setWaConnectedName] = useState("");
   const waPollingQrRef = useRef(null);
   const coletaTimerRef = useRef({});
+  const convosLoadedRef = useRef(false);
 
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
@@ -447,7 +446,7 @@ export default function App() {
     return () => { _onSuggest = null; _onCountdown = null; _onLoading = null; _getConvos = null; _getCfg = null; _getActiveId = null; };
   }, []);
 
-  // Carregar histórico de conversas do localStorage
+  // Carregar histórico de conversas do localStorage (roda primeiro)
   useEffect(() => {
     try {
       const s = localStorage.getItem("aurora_convos");
@@ -456,16 +455,16 @@ export default function App() {
         if (saved?.length) {
           setConvos(saved);
           setActiveId(saved[0].id);
-          // Marcar como já vistas para não reprocessar
           saved.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
         }
       }
     } catch {}
+    convosLoadedRef.current = true;
   }, []);
 
-  // Salvar conversas no localStorage sempre que mudarem (sem base64 para não estourar limite)
+  // Salvar conversas no localStorage — só após o load inicial
   useEffect(() => {
-    if (!convos.length) return;
+    if (!convosLoadedRef.current) return;
     try {
       const toSave = convos.map(c => ({
         ...c,
