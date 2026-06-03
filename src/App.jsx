@@ -1171,6 +1171,12 @@ export default function App() {
                 {webhookStatus === "ok" ? "● online" : "● erro"}
               </span>
             </div>
+            {[["💬","chat"],["📋","crm"]].map(([icon, view]) => (
+              <button key={view} onClick={() => setMainView(view)}
+                style={{ background: mainView === view ? W.green : "none", border: "none", borderRadius: 6, padding: "4px 8px", color: mainView === view ? "#fff" : W.icon, fontSize: 16, cursor: "pointer" }}>
+                {icon}
+              </button>
+            ))}
             <button onClick={() => { setShowNew(v => !v); setShowCfg(false); }} title="Nova conversa"
               style={{ background: "none", border: "none", color: W.icon, fontSize: 18, padding: "4px 6px", borderRadius: 6 }}>✎</button>
             <button onClick={() => { setShowWA(true); setShowCfg(false); }} title="WhatsApp"
