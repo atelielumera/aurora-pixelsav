@@ -573,8 +573,9 @@ export default function AuroraAgent() {
             if (existing) {
               if (existing.messages.some(em => em.waId === msgId)) return cs;
               const newMsgs = [...existing.messages, novaMsg];
-              // Gera sugestão se for a conversa ativa
-              setTimeout(() => gerarSugestao(newMsgs, false), 100);
+              // Ativa conversa e gera sugestão
+              setActiveId(existing.id);
+              setTimeout(() => gerarSugestao(newMsgs, false), 300);
               return cs.map(c => c.id === existing.id ? {
                 ...c, messages: newMsgs,
                 lastMsg: text.slice(0,40), time: timeStr, unread: (c.unread||0)+1,
@@ -582,7 +583,6 @@ export default function AuroraAgent() {
             } else {
               const newMsgs = [novaMsg];
               const novoId = Date.now()+Math.random();
-              setActiveId(novoId);
               // Nova conversa — envia saudação automaticamente via WhatsApp
               const saudacao = "Olá! Seja bem-vindo(a) ao atendimento da PixelSAV! 😊 Sou a Aurora, sua consultora de experiências imersivas. Como posso te ajudar hoje?";
               const currentCfg = cfgRef.current;
@@ -594,10 +594,14 @@ export default function AuroraAgent() {
                 }).catch(() => {});
               }
               const msgSaudacao = { from:"aurora", text: saudacao, time: timeStr, id: Date.now()+Math.random(), type:"text" };
-              // Gera sugestão para a mensagem do cliente (após saudação)
-              setTimeout(() => gerarSugestao(newMsgs, false), 500);
+              const msgsComSaudacao = [msgSaudacao, novaMsg];
+              // Ativa a conversa e gera sugestão após 800ms
+              setActiveId(novoId);
+              setTimeout(() => {
+                gerarSugestao(msgsComSaudacao, false);
+              }, 800);
               return [{ id:novoId, name, phone, waJid:from, lastMsg:text.slice(0,40), time:timeStr, unread:1,
-                messages:[msgSaudacao, novaMsg], leadData:{}, attachments:[] }, ...cs];
+                messages:msgsComSaudacao, leadData:{}, attachments:[] }, ...cs];
             }
           });
         }
