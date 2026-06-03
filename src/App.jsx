@@ -619,17 +619,18 @@ export default function AuroraAgent() {
   // Observa convos — quando última msg é do cliente, dispara timer 30s
   const lastClientMsgId = useRef(null);
   useEffect(() => {
-    if (!active) return;
-    if (active.paused) return;
-    const msgs = active.messages || [];
+    const convoAtiva = convos.find(c => c.id === activeId);
+    if (!convoAtiva) return;
+    if (convoAtiva.paused) return;
+    const msgs = convoAtiva.messages || [];
     if (!msgs.length) return;
     const ultima = msgs[msgs.length - 1];
     if (ultima.from !== "cliente") return;
-    if (ultima.waId === lastClientMsgId.current) return; // já processou
-    lastClientMsgId.current = ultima.waId || ultima.id;
-    // Dispara timer global
-    dispararTimerGlobal(active.waJid, () => convosRef.current, () => cfgForTimer.current);
-  }, [active?.messages?.length]);
+    const uid = ultima.waId || ultima.id;
+    if (uid === lastClientMsgId.current) return;
+    lastClientMsgId.current = uid;
+    dispararTimerGlobal(convoAtiva.waJid, () => convosRef.current, () => cfgForTimer.current);
+  }, [convos, activeId]);
 
   function iniciarTimer(waId, waJid) {
     const convo = convosRef.current?.find(c => c.waJid === waJid);
