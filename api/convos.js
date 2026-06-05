@@ -35,7 +35,7 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
       const { convos } = req.body || {};
-      if (!Array.isArray(convos)) { res.status(400).json({ error: "invalid" }); return; }
+      if (!Array.isArray(convos) || convos.length === 0) { res.status(400).json({ error: "invalid or empty" }); return; }
       // Strip base64/url to keep size manageable — media fetched on demand
       const toSave = convos.map(c => ({
         ...c,

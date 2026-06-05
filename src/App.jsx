@@ -462,19 +462,20 @@ export default function App() {
   // Salvar conversas no Redis + localStorage como backup
   useEffect(() => {
     if (!convosLoadedRef.current) return;
+    if (!convos.length) return; // nunca salva lista vazia
+    const toSave = convos.map(c => ({
+      ...c,
+      messages: c.messages.map(m => ({ ...m, url: undefined, mediaBase64: undefined })),
+      attachments: (c.attachments || []).map(a => ({ ...a, base64: undefined, url: undefined })),
+    }));
     // Salva no Redis
     fetch("/api/convos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ convos }),
+      body: JSON.stringify({ convos: toSave }),
     }).catch(() => {});
-    // Backup no localStorage (sem base64)
+    // Backup no localStorage
     try {
-      const toSave = convos.map(c => ({
-        ...c,
-        messages: c.messages.map(m => ({ ...m, url: undefined, mediaBase64: undefined })),
-        attachments: (c.attachments || []).map(a => ({ ...a, base64: undefined, url: undefined })),
-      }));
       localStorage.setItem("aurora_convos", JSON.stringify(toSave));
     } catch {}
   }, [convos]);
