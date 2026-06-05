@@ -455,50 +455,85 @@ export default function App() {
     }
 
     async function load() {
-      // 1. Tenta carregar do Redis
+      let base = [];
+      let metaMap = {};
+
+      // 1. Carregar metadados (leadData, name, paused) salvos separadamente
+      try {
+        const r = await fetch("/api/meta");
+        const d = await r.json();
+        if (d.meta && typeof d.meta === "object") metaMap = d.meta;
+      } catch {}
+
+      // 2. Tenta carregar conversas salvas do Redis
       try {
         const r = await fetch("/api/convos");
         const d = await r.json();
         if (d.convos?.length) {
-          setConvos(d.convos);
-          setActiveId(d.convos[0].id);
-          d.convos.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
-          convosLoadedRef.current = true;
-          return;
+          base = d.convos;
+          base.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
         }
       } catch {}
-      // 2. Fallback: localStorage
-      try {
-        const s = localStorage.getItem("aurora_convos");
-        if (s) {
-          const saved = JSON.parse(s);
-          if (saved?.length) {
-            setConvos(saved);
-            setActiveId(saved[0].id);
-            saved.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
-            convosLoadedRef.current = true;
-            return;
+
+      // 3. Fallback localStorage se Redis vazio
+      if (!base.length) {
+        try {
+          const s = localStorage.getItem("aurora_convos");
+          if (s) {
+            const saved = JSON.parse(s);
+            if (saved?.length) {
+              base = saved;
+              base.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
+            }
           }
-        }
-      } catch {}
-      // 3. Reconstruir do histórico do webhook
+        } catch {}
+      }
+
+      // 4. Sempre mesclar mensagens do webhook (fonte mais confiável)
       try {
         const r = await fetch("/api/webhook?debug=1");
         const d = await r.json();
         if (d.messages?.length) {
-          const rebuilt = await buildConvosFromWebhook(d.messages);
-          if (rebuilt.length) {
-            setConvos(rebuilt);
-            setActiveId(rebuilt[0].id);
+          if (!base.length) {
+            // Reconstruir do zero
+            base = await buildConvosFromWebhook(d.messages);
+          } else {
+            // Mesclar mensagens novas não vistas
+            for (const m of [...d.messages].reverse()) {
+              if (!m.id || seenIds.current.has(m.id)) continue;
+              seenIds.current.add(m.id);
+              const from = m.remoteJid || "";
+              if (!from || from.includes("@g.us")) continue;
+              const phone = from.replace("@s.whatsapp.net", "");
+              const existing = base.find(c => c.waJid === from || c.phone === phone);
+              if (!existing) continue;
+              const msgTime = m.timestamp ? new Date(m.timestamp * 1000) : new Date();
+              const timeStr = `${String(msgTime.getHours()).padStart(2,"0")}:${String(msgTime.getMinutes()).padStart(2,"0")}`;
+              existing.messages.push({ from: "cliente", text: m.text || "[mídia]", time: timeStr, id: `${m.id}-wb`, type: m.type || "text", waId: m.id, fileName: m.fileName || null, mimeType: m.mimeType || null });
+              existing.lastMsg = (m.text || "[mídia]").slice(0, 40);
+              existing.time = timeStr;
+            }
           }
         }
       } catch {}
+
+      // 5. Aplicar metadados salvos sobre as conversas reconstruídas
+      if (base.length) {
+        base = base.map(c => {
+          const meta = c.waJid ? metaMap[c.waJid] : null;
+          if (!meta) return c;
+          return { ...c, name: meta.name || c.name, paused: meta.paused ?? c.paused, leadData: { ...c.leadData, ...(meta.leadData || {}) } };
+        });
+        setConvos(base);
+        setActiveId(base[0].id);
+      }
+
       convosLoadedRef.current = true;
     }
     load();
   }, []);
 
-  // Salvar conversas no Redis + localStorage como backup
+  // Salvar conversas + metadados no Redis e localStorage
   useEffect(() => {
     if (!convosLoadedRef.current) return;
     if (!convos.length) return; // nunca salva lista vazia
@@ -507,12 +542,24 @@ export default function App() {
       messages: c.messages.map(m => ({ ...m, url: undefined, mediaBase64: undefined })),
       attachments: (c.attachments || []).map(a => ({ ...a, base64: undefined, url: undefined })),
     }));
-    // Salva no Redis
+    // Salva conversas completas no Redis
     fetch("/api/convos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ convos: toSave }),
     }).catch(() => {});
+    // Salva metadados separadamente (backup pequeno e confiável)
+    const meta = {};
+    convos.forEach(c => {
+      if (c.waJid) meta[c.waJid] = { name: c.name, paused: c.paused, leadData: c.leadData };
+    });
+    if (Object.keys(meta).length) {
+      fetch("/api/meta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meta }),
+      }).catch(() => {});
+    }
     // Backup no localStorage
     try {
       localStorage.setItem("aurora_convos", JSON.stringify(toSave));
