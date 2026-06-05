@@ -428,25 +428,47 @@ export default function App() {
     return () => { _onSuggest = null; _onCountdown = null; _onLoading = null; _getConvos = null; _getCfg = null; _getActiveId = null; };
   }, []);
 
-  // Carregar histórico de conversas do localStorage (roda primeiro)
+  // Carregar histórico do Redis (com fallback para localStorage)
   useEffect(() => {
-    try {
-      const s = localStorage.getItem("aurora_convos");
-      if (s) {
-        const saved = JSON.parse(s);
-        if (saved?.length) {
-          setConvos(saved);
-          setActiveId(saved[0].id);
-          saved.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
+    async function load() {
+      try {
+        const r = await fetch("/api/convos");
+        const d = await r.json();
+        if (d.convos?.length) {
+          setConvos(d.convos);
+          setActiveId(d.convos[0].id);
+          d.convos.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
+          convosLoadedRef.current = true;
+          return;
         }
-      }
-    } catch {}
-    convosLoadedRef.current = true;
+      } catch {}
+      // Fallback: localStorage
+      try {
+        const s = localStorage.getItem("aurora_convos");
+        if (s) {
+          const saved = JSON.parse(s);
+          if (saved?.length) {
+            setConvos(saved);
+            setActiveId(saved[0].id);
+            saved.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
+          }
+        }
+      } catch {}
+      convosLoadedRef.current = true;
+    }
+    load();
   }, []);
 
-  // Salvar conversas no localStorage — só após o load inicial
+  // Salvar conversas no Redis + localStorage como backup
   useEffect(() => {
     if (!convosLoadedRef.current) return;
+    // Salva no Redis
+    fetch("/api/convos", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ convos }),
+    }).catch(() => {});
+    // Backup no localStorage (sem base64)
     try {
       const toSave = convos.map(c => ({
         ...c,
@@ -454,17 +476,7 @@ export default function App() {
         attachments: (c.attachments || []).map(a => ({ ...a, base64: undefined, url: undefined })),
       }));
       localStorage.setItem("aurora_convos", JSON.stringify(toSave));
-    } catch(e) {
-      // Se estourar quota, tenta salvar só últimas 50 msgs por conversa
-      try {
-        const toSave = convos.map(c => ({
-          ...c,
-          messages: c.messages.slice(-50).map(m => ({ ...m, url: undefined, mediaBase64: undefined })),
-          attachments: [],
-        }));
-        localStorage.setItem("aurora_convos", JSON.stringify(toSave));
-      } catch {}
-    }
+    } catch {}
   }, [convos]);
 
   useEffect(() => {
