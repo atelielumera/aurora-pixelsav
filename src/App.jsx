@@ -450,11 +450,21 @@ export default function App() {
     try {
       const toSave = convos.map(c => ({
         ...c,
-        messages: c.messages.map(m => ({ ...m })),
-        attachments: (c.attachments || []).map(a => ({ ...a })),
+        messages: c.messages.map(m => ({ ...m, url: undefined, mediaBase64: undefined })),
+        attachments: (c.attachments || []).map(a => ({ ...a, base64: undefined, url: undefined })),
       }));
       localStorage.setItem("aurora_convos", JSON.stringify(toSave));
-    } catch {}
+    } catch(e) {
+      // Se estourar quota, tenta salvar só últimas 50 msgs por conversa
+      try {
+        const toSave = convos.map(c => ({
+          ...c,
+          messages: c.messages.slice(-50).map(m => ({ ...m, url: undefined, mediaBase64: undefined })),
+          attachments: [],
+        }));
+        localStorage.setItem("aurora_convos", JSON.stringify(toSave));
+      } catch {}
+    }
   }, [convos]);
 
   useEffect(() => {
