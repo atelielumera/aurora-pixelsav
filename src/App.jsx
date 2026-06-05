@@ -428,9 +428,34 @@ export default function App() {
     return () => { _onSuggest = null; _onCountdown = null; _onLoading = null; _getConvos = null; _getCfg = null; _getActiveId = null; };
   }, []);
 
-  // Carregar histórico do Redis (com fallback para localStorage)
+  // Carregar histórico do Redis (com fallback para localStorage e reconstrução do webhook)
   useEffect(() => {
+    async function buildConvosFromWebhook(msgs) {
+      const map = {};
+      const order = [];
+      for (const m of [...msgs].reverse()) {
+        const from = m.remoteJid || "";
+        if (!from || from.includes("@g.us")) continue;
+        const phone = from.replace("@s.whatsapp.net", "");
+        if (!map[from]) {
+          const name = m.pushName || phone;
+          const id = `${from}-${Date.now()}`;
+          map[from] = { id, name, phone, waJid: from, messages: [], lastMsg: "", time: "", unread: 0, leadData: {}, attachments: [], paused: false };
+          order.push(from);
+        }
+        const msgTime = m.timestamp ? new Date(m.timestamp * 1000) : new Date();
+        const timeStr = `${String(msgTime.getHours()).padStart(2,"0")}:${String(msgTime.getMinutes()).padStart(2,"0")}`;
+        const novaMsg = { from: "cliente", text: m.text || "[mídia]", time: timeStr, id: `${m.id}-loaded`, type: m.type || "text", waId: m.id, fileName: m.fileName || null, mimeType: m.mimeType || null };
+        map[from].messages.push(novaMsg);
+        map[from].lastMsg = novaMsg.text.slice(0, 40);
+        map[from].time = timeStr;
+        if (m.id) seenIds.current.add(m.id);
+      }
+      return order.map(k => ({ ...map[k], leadData: extractLead(map[k].messages, {}) })).reverse();
+    }
+
     async function load() {
+      // 1. Tenta carregar do Redis
       try {
         const r = await fetch("/api/convos");
         const d = await r.json();
@@ -442,7 +467,7 @@ export default function App() {
           return;
         }
       } catch {}
-      // Fallback: localStorage
+      // 2. Fallback: localStorage
       try {
         const s = localStorage.getItem("aurora_convos");
         if (s) {
@@ -451,6 +476,20 @@ export default function App() {
             setConvos(saved);
             setActiveId(saved[0].id);
             saved.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
+            convosLoadedRef.current = true;
+            return;
+          }
+        }
+      } catch {}
+      // 3. Reconstruir do histórico do webhook
+      try {
+        const r = await fetch("/api/webhook?debug=1");
+        const d = await r.json();
+        if (d.messages?.length) {
+          const rebuilt = await buildConvosFromWebhook(d.messages);
+          if (rebuilt.length) {
+            setConvos(rebuilt);
+            setActiveId(rebuilt[0].id);
           }
         }
       } catch {}
