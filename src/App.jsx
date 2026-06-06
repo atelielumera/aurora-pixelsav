@@ -232,6 +232,20 @@ function extractLead(msgs, cur) {
   return updated;
 }
 
+// ─── VENDEDORES ───────────────────────────────────────────────────────────────
+const VENDEDORES = {
+  Emily:    { color: "#ec4899", bg: "#ec489920", border: "#ec489960" },
+  Denise:   { color: "#f97316", bg: "#f9731620", border: "#f9731660" },
+  Flávio:   { color: "#3b82f6", bg: "#3b82f620", border: "#3b82f660" },
+  Fernando: { color: "#10b981", bg: "#10b98120", border: "#10b98160" },
+  Caron:    { color: "#9ca3af", bg: "#9ca3af20", border: "#9ca3af60" },
+};
+const VENDEDOR_NAMES = Object.keys(VENDEDORES);
+
+function vendedorColor(vendedor) {
+  return VENDEDORES[vendedor]?.color || null;
+}
+
 // ─── KANBAN STAGE CONFIG ──────────────────────────────────────────────────────
 const STAGE_CFG = {
   novo:     { label: "Novo",      color: "#6b7280", bg: "#6b728015", border: "#6b728040" },
@@ -258,7 +272,8 @@ function getStage(convo, resumoSentMap) {
 }
 
 // ─── AVATAR COLOR ─────────────────────────────────────────────────────────────
-function avatarColor(name) {
+function avatarColor(name, vendedor) {
+  if (vendedor && VENDEDORES[vendedor]) return VENDEDORES[vendedor].color;
   const colors = ["#6b7280","#8b5cf6","#ec4899","#f97316","#10b981","#3b82f6","#ef4444","#14b8a6","#f59e0b","#6366f1"];
   let h = 0;
   for (let i = 0; i < (name || "?").length; i++) h = (h * 31 + (name || "?").charCodeAt(i)) % colors.length;
@@ -366,6 +381,7 @@ export default function App() {
   const [crmSearch, setCrmSearch] = useState("");
   const [crmProduto, setCrmProduto] = useState("");
   const [crmTag, setCrmTag] = useState("");
+  const [crmVendedor, setCrmVendedor] = useState("");
   const [tagInputs, setTagInputs] = useState({});
 
   const [convos, setConvos] = useState([]);
@@ -1187,6 +1203,7 @@ export default function App() {
             if (crmSearch && !c.name.toLowerCase().includes(crmSearch.toLowerCase()) && !(c.phone || "").includes(crmSearch)) return false;
             if (crmProduto && ld.produto !== crmProduto) return false;
             if (crmTag && !(ld.tags || []).includes(crmTag)) return false;
+            if (crmVendedor && ld.vendedor !== crmVendedor) return false;
             return true;
           });
 
@@ -1208,6 +1225,11 @@ export default function App() {
                   style={{ background: W.inputBg, border: "none", borderRadius: 8, padding: "7px 10px", color: crmTag ? W.text : W.sub, fontSize: 13, outline: "none", cursor: "pointer" }}>
                   <option value="">Tag (todas)</option>
                   {allTags.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <select value={crmVendedor} onChange={e => setCrmVendedor(e.target.value)}
+                  style={{ background: W.inputBg, border: "none", borderRadius: 8, padding: "7px 10px", color: crmVendedor ? W.text : W.sub, fontSize: 13, outline: "none", cursor: "pointer" }}>
+                  <option value="">Vendedor (todos)</option>
+                  {VENDEDOR_NAMES.map(v => <option key={v} value={v} style={{ color: VENDEDORES[v].color }}>{v}</option>)}
                 </select>
                 <span style={{ color: W.sub, fontSize: 12 }}>{filtered.length} lead{filtered.length !== 1 ? "s" : ""}</span>
               </div>
@@ -1250,7 +1272,7 @@ export default function App() {
                             <div key={convo.id} style={{ background: W.leftBg, border: `1px solid ${W.divider}`, borderRadius: 10, padding: "12px", display: "flex", flexDirection: "column", gap: 8 }}>
                               {/* Avatar + name */}
                               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <div style={{ width: 36, height: 36, borderRadius: "50%", background: avatarColor(convo.name), display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
+                                <div style={{ width: 36, height: 36, borderRadius: "50%", background: avatarColor(convo.name, convo.leadData?.vendedor), display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
                                   {(convo.name || "?")[0].toUpperCase()}
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1267,10 +1289,24 @@ export default function App() {
                                 </div>
                               )}
 
-                              {/* Score badge */}
-                              <div style={{ display: "inline-flex", alignSelf: "flex-start", background: si2.bg, color: si2.color, borderRadius: 8, padding: "2px 9px", fontSize: 11, fontWeight: 600 }}>
-                                {si2.emoji} {si2.label} {sc}/100
+                              {/* Score badge + vendedor */}
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                                <div style={{ display: "inline-flex", background: si2.bg, color: si2.color, borderRadius: 8, padding: "2px 9px", fontSize: 11, fontWeight: 600 }}>
+                                  {si2.emoji} {si2.label} {sc}/100
+                                </div>
+                                {ld.vendedor && VENDEDORES[ld.vendedor] && (
+                                  <div style={{ display: "inline-flex", background: VENDEDORES[ld.vendedor].bg, color: VENDEDORES[ld.vendedor].color, border: `1px solid ${VENDEDORES[ld.vendedor].border}`, borderRadius: 8, padding: "2px 9px", fontSize: 11, fontWeight: 600 }}>
+                                    👤 {ld.vendedor}
+                                  </div>
+                                )}
                               </div>
+
+                              {/* Vendedor selector */}
+                              <select value={ld.vendedor || ""} onChange={e => updateLead(convo.id, { vendedor: e.target.value || undefined })}
+                                style={{ background: ld.vendedor && VENDEDORES[ld.vendedor] ? VENDEDORES[ld.vendedor].bg : W.inputBg, border: `1px solid ${ld.vendedor && VENDEDORES[ld.vendedor] ? VENDEDORES[ld.vendedor].border : W.divider}`, borderRadius: 6, padding: "4px 8px", color: ld.vendedor && VENDEDORES[ld.vendedor] ? VENDEDORES[ld.vendedor].color : W.sub, fontSize: 11, outline: "none", cursor: "pointer", width: "100%" }}>
+                                <option value="">Atribuir vendedor...</option>
+                                {VENDEDOR_NAMES.map(v => <option key={v} value={v}>{v}</option>)}
+                              </select>
 
                               {/* Tags */}
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -1420,7 +1456,7 @@ export default function App() {
                 >
                   <div style={{ position: "relative", flexShrink: 0 }}>
                     <div style={{
-                      width: 49, height: 49, borderRadius: "50%", background: avatarColor(c.name),
+                      width: 49, height: 49, borderRadius: "50%", background: avatarColor(c.name, c.leadData?.vendedor),
                       display: "flex", alignItems: "center", justifyContent: "center",
                       color: "#fff", fontWeight: 700, fontSize: 20
                     }}>{(c.name || "?")[0].toUpperCase()}</div>
@@ -1441,6 +1477,7 @@ export default function App() {
                     <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                       <span style={{ color: W.sub, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{c.lastMsg || "Sem mensagens"}</span>
                       <span style={{ fontSize: 10, background: sci.bg, color: sci.color, borderRadius: 10, padding: "1px 6px", flexShrink: 0 }}>{sci.emoji}</span>
+                      {c.leadData?.vendedor && VENDEDORES[c.leadData.vendedor] && <span style={{ fontSize: 9, background: VENDEDORES[c.leadData.vendedor].bg, color: VENDEDORES[c.leadData.vendedor].color, borderRadius: 10, padding: "1px 5px", flexShrink: 0, fontWeight: 700 }}>{c.leadData.vendedor}</span>}
                       {c.paused && <span style={{ fontSize: 10, background: "#ef444420", color: "#ef4444", borderRadius: 10, padding: "1px 6px", flexShrink: 0 }}>⏸</span>}
                     </div>
                   </div>
@@ -1469,7 +1506,7 @@ export default function App() {
                   style={{ display: "none", background: "none", border: "none", color: W.icon, fontSize: 22, padding: "4px 6px", flexShrink: 0 }}
                   className="mobile-back">‹</button>
                 <div style={{
-                  width: 40, height: 40, borderRadius: "50%", background: avatarColor(active.name),
+                  width: 40, height: 40, borderRadius: "50%", background: avatarColor(active.name, active.leadData?.vendedor),
                   display: "flex", alignItems: "center", justifyContent: "center",
                   color: "#fff", fontWeight: 700, fontSize: 17, flexShrink: 0
                 }}>{(active.name || "?")[0].toUpperCase()}</div>
@@ -1530,7 +1567,7 @@ export default function App() {
                           {showAvatar ? (
                             <div style={{
                               width: 28, height: 28, borderRadius: "50%",
-                              background: isCliente ? avatarColor(active.name) : "linear-gradient(135deg,#00a884,#005c4b)",
+                              background: isCliente ? avatarColor(active.name, active.leadData?.vendedor) : "linear-gradient(135deg,#00a884,#005c4b)",
                               display: "flex", alignItems: "center", justifyContent: "center",
                               color: "#fff", fontSize: 12, fontWeight: 700, flexShrink: 0
                             }}>{isCliente ? (active.name || "?")[0].toUpperCase() : "A"}</div>
@@ -1811,6 +1848,15 @@ export default function App() {
                           />
                         </div>
                       ))}
+                      {/* Vendedor */}
+                      <div style={{ marginBottom: 7 }}>
+                        <div style={{ color: W.sub, fontSize: 11, marginBottom: 2 }}>Vendedor</div>
+                        <select value={leadData.vendedor || ""} onChange={e => updateLead(activeId, { vendedor: e.target.value || undefined })}
+                          style={{ width: "100%", background: leadData.vendedor && VENDEDORES[leadData.vendedor] ? VENDEDORES[leadData.vendedor].bg : W.inputBg, border: `1px solid ${leadData.vendedor && VENDEDORES[leadData.vendedor] ? VENDEDORES[leadData.vendedor].border : "transparent"}`, borderRadius: 5, padding: "5px 8px", color: leadData.vendedor && VENDEDORES[leadData.vendedor] ? VENDEDORES[leadData.vendedor].color : W.sub, fontSize: 12, outline: "none", cursor: "pointer" }}>
+                          <option value="">Sem vendedor</option>
+                          {VENDEDOR_NAMES.map(v => <option key={v} value={v}>{v}</option>)}
+                        </select>
+                      </div>
                     </div>
 
                     {/* Anexos */}
