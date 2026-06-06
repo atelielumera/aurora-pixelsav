@@ -1301,12 +1301,20 @@ export default function App() {
                                 )}
                               </div>
 
-                              {/* Vendedor selector */}
-                              <select value={ld.vendedor || ""} onChange={e => updateLead(convo.id, { vendedor: e.target.value || undefined })}
-                                style={{ background: ld.vendedor && VENDEDORES[ld.vendedor] ? VENDEDORES[ld.vendedor].bg : W.inputBg, border: `1px solid ${ld.vendedor && VENDEDORES[ld.vendedor] ? VENDEDORES[ld.vendedor].border : W.divider}`, borderRadius: 6, padding: "4px 8px", color: ld.vendedor && VENDEDORES[ld.vendedor] ? VENDEDORES[ld.vendedor].color : W.sub, fontSize: 11, outline: "none", cursor: "pointer", width: "100%" }}>
-                                <option value="">Atribuir vendedor...</option>
-                                {VENDEDOR_NAMES.map(v => <option key={v} value={v}>{v}</option>)}
-                              </select>
+                              {/* Tags fixas de vendedor */}
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                {VENDEDOR_NAMES.map(v => {
+                                  const vc = VENDEDORES[v];
+                                  const active2 = ld.vendedor === v;
+                                  return (
+                                    <span key={v} onClick={() => updateLead(convo.id, { vendedor: active2 ? undefined : v })}
+                                      title={active2 ? "Remover" : `Atribuir a ${v}`}
+                                      style={{ background: active2 ? vc.bg : "transparent", color: active2 ? vc.color : W.sub, border: `1px solid ${active2 ? vc.border : W.divider}`, borderRadius: 20, padding: "2px 9px", fontSize: 11, fontWeight: active2 ? 700 : 400, cursor: "pointer", transition: "all .15s" }}>
+                                      {v}
+                                    </span>
+                                  );
+                                })}
+                              </div>
 
                               {/* Tags */}
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -1850,12 +1858,19 @@ export default function App() {
                       ))}
                       {/* Vendedor */}
                       <div style={{ marginBottom: 7 }}>
-                        <div style={{ color: W.sub, fontSize: 11, marginBottom: 2 }}>Vendedor</div>
-                        <select value={leadData.vendedor || ""} onChange={e => updateLead(activeId, { vendedor: e.target.value || undefined })}
-                          style={{ width: "100%", background: leadData.vendedor && VENDEDORES[leadData.vendedor] ? VENDEDORES[leadData.vendedor].bg : W.inputBg, border: `1px solid ${leadData.vendedor && VENDEDORES[leadData.vendedor] ? VENDEDORES[leadData.vendedor].border : "transparent"}`, borderRadius: 5, padding: "5px 8px", color: leadData.vendedor && VENDEDORES[leadData.vendedor] ? VENDEDORES[leadData.vendedor].color : W.sub, fontSize: 12, outline: "none", cursor: "pointer" }}>
-                          <option value="">Sem vendedor</option>
-                          {VENDEDOR_NAMES.map(v => <option key={v} value={v}>{v}</option>)}
-                        </select>
+                        <div style={{ color: W.sub, fontSize: 11, marginBottom: 6 }}>Vendedor</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                          {VENDEDOR_NAMES.map(v => {
+                            const vc = VENDEDORES[v];
+                            const isActive = leadData.vendedor === v;
+                            return (
+                              <span key={v} onClick={() => updateLead(activeId, { vendedor: isActive ? undefined : v })}
+                                style={{ background: isActive ? vc.bg : "transparent", color: isActive ? vc.color : W.sub, border: `1px solid ${isActive ? vc.border : W.divider}`, borderRadius: 20, padding: "3px 10px", fontSize: 12, fontWeight: isActive ? 700 : 400, cursor: "pointer", transition: "all .15s" }}>
+                                {v}
+                              </span>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
 
