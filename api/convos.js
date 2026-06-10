@@ -4,10 +4,16 @@ const KEY = "aurora_convos_v2";
 let _redis = null;
 
 function getRedis() {
-  if (!_redis && process.env.REDIS_URL) {
-    _redis = new Redis(process.env.REDIS_URL, { lazyConnect: false, maxRetriesPerRequest: 2 });
-    _redis.on("error", () => { _redis = null; });
-  }
+  if (_redis && (_redis.status === "ready" || _redis.status === "connecting" || _redis.status === "reconnecting")) return _redis;
+  if (!process.env.REDIS_URL) return null;
+  _redis = new Redis(process.env.REDIS_URL, {
+    lazyConnect: false,
+    maxRetriesPerRequest: 3,
+    connectTimeout: 5000,
+    retryStrategy: (times) => Math.min(times * 300, 3000),
+    enableOfflineQueue: true,
+  });
+  _redis.on("error", (e) => { console.error("Redis convos:", e.message); });
   return _redis;
 }
 
@@ -56,9 +62,12 @@ export default async function handler(req, res) {
         attachments: (c.attachments || []).map(a => ({ ...a, base64: undefined, url: undefined })),
       }));
       if (r) {
-        await r.set(KEY, JSON.stringify(toSave));
+        const json = JSON.stringify(toSave);
+        await r.set(KEY, json);
+        res.status(200).json({ ok: true, saved: "redis", count: toSave.length, bytes: json.length });
+      } else {
+        res.status(200).json({ ok: false, saved: "none", error: "no redis", redisUrl: !!process.env.REDIS_URL });
       }
-      res.status(200).json({ ok: true });
     } catch(e) {
       res.status(500).json({ error: e.message });
     }

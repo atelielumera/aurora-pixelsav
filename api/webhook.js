@@ -6,10 +6,16 @@ const MAX = 500;
 
 let _redis = null;
 function getRedis() {
-  if (!_redis && process.env.REDIS_URL) {
-    _redis = new Redis(process.env.REDIS_URL, { lazyConnect: false, maxRetriesPerRequest: 2 });
-    _redis.on("error", () => { _redis = null; });
-  }
+  if (_redis && (_redis.status === "ready" || _redis.status === "connecting" || _redis.status === "reconnecting")) return _redis;
+  if (!process.env.REDIS_URL) return null;
+  _redis = new Redis(process.env.REDIS_URL, {
+    lazyConnect: false,
+    maxRetriesPerRequest: 3,
+    connectTimeout: 5000,
+    retryStrategy: (times) => Math.min(times * 300, 3000),
+    enableOfflineQueue: true,
+  });
+  _redis.on("error", (e) => { console.error("Redis webhook:", e.message); });
   return _redis;
 }
 
@@ -90,7 +96,7 @@ export default async function handler(req, res) {
 
     const data = req.body?.data || req.body;
     const key = data?.key || {};
-    if (key?.fromMe) { res.status(200).json({ ok: true }); return; }
+    const fromMe = !!key?.fromMe;
     const remoteJid = key?.remoteJid || "";
     if (!remoteJid || remoteJid.includes("@g.us")) { res.status(200).json({ ok: true }); return; }
 
@@ -141,8 +147,9 @@ export default async function handler(req, res) {
     await addMsg({
       id: key?.id || `${Date.now()}`,
       remoteJid,
+      fromMe,
       pushName: data?.pushName || remoteJid.split("@")[0],
-      text, type, mediaBase64, fileName, mimeType,
+      text, type, mediaBase64: fromMe ? null : mediaBase64, fileName, mimeType,
       timestamp: data?.messageTimestamp || Math.floor(Date.now() / 1000),
       receivedAt: Date.now(),
     });

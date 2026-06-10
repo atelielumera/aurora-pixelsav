@@ -232,6 +232,20 @@ function extractLead(msgs, cur) {
   return updated;
 }
 
+// ─── VENDEDORES ───────────────────────────────────────────────────────────────
+const VENDEDORES = {
+  Emily:    { color: "#ec4899", bg: "#ec489920", border: "#ec489960" },
+  Denise:   { color: "#f97316", bg: "#f9731620", border: "#f9731660" },
+  Flávio:   { color: "#3b82f6", bg: "#3b82f620", border: "#3b82f660" },
+  Fernando: { color: "#10b981", bg: "#10b98120", border: "#10b98160" },
+  Caron:    { color: "#9ca3af", bg: "#9ca3af20", border: "#9ca3af60" },
+};
+const VENDEDOR_NAMES = Object.keys(VENDEDORES);
+
+function vendedorColor(vendedor) {
+  return VENDEDORES[vendedor]?.color || null;
+}
+
 // ─── KANBAN STAGE CONFIG ──────────────────────────────────────────────────────
 const STAGE_CFG = {
   novo:     { label: "Novo",      color: "#6b7280", bg: "#6b728015", border: "#6b728040" },
@@ -258,7 +272,8 @@ function getStage(convo, resumoSentMap) {
 }
 
 // ─── AVATAR COLOR ─────────────────────────────────────────────────────────────
-function avatarColor(name) {
+function avatarColor(name, vendedor) {
+  if (vendedor && VENDEDORES[vendedor]) return VENDEDORES[vendedor].color;
   const colors = ["#6b7280","#8b5cf6","#ec4899","#f97316","#10b981","#3b82f6","#ef4444","#14b8a6","#f59e0b","#6366f1"];
   let h = 0;
   for (let i = 0; i < (name || "?").length; i++) h = (h * 31 + (name || "?").charCodeAt(i)) % colors.length;
@@ -366,6 +381,7 @@ export default function App() {
   const [crmSearch, setCrmSearch] = useState("");
   const [crmProduto, setCrmProduto] = useState("");
   const [crmTag, setCrmTag] = useState("");
+  const [crmVendedor, setCrmVendedor] = useState("");
   const [tagInputs, setTagInputs] = useState({});
 
   const [convos, setConvos] = useState([]);
@@ -445,9 +461,9 @@ export default function App() {
         }
         const msgTime = m.timestamp ? new Date(m.timestamp * 1000) : new Date();
         const timeStr = `${String(msgTime.getHours()).padStart(2,"0")}:${String(msgTime.getMinutes()).padStart(2,"0")}`;
-        const novaMsg = { from: "cliente", text: m.text || "[mídia]", time: timeStr, id: `${m.id}-loaded`, type: m.type || "text", waId: m.id, fileName: m.fileName || null, mimeType: m.mimeType || null };
+        const novaMsg = { from: m.fromMe ? "aurora" : "cliente", text: m.text || "[mídia]", time: timeStr, id: `${m.id}-loaded`, type: m.type || "text", waId: m.id, fileName: m.fileName || null, mimeType: m.mimeType || null };
         map[from].messages.push(novaMsg);
-        map[from].lastMsg = novaMsg.text.slice(0, 40);
+        if (!m.fromMe) map[from].lastMsg = novaMsg.text.slice(0, 40);
         map[from].time = timeStr;
         if (m.id) seenIds.current.add(m.id);
       }
@@ -455,50 +471,85 @@ export default function App() {
     }
 
     async function load() {
-      // 1. Tenta carregar do Redis
+      let base = [];
+      let metaMap = {};
+
+      // 1. Carregar metadados (leadData, name, paused) salvos separadamente
+      try {
+        const r = await fetch("/api/meta");
+        const d = await r.json();
+        if (d.meta && typeof d.meta === "object") metaMap = d.meta;
+      } catch {}
+
+      // 2. Tenta carregar conversas salvas do Redis
       try {
         const r = await fetch("/api/convos");
         const d = await r.json();
         if (d.convos?.length) {
-          setConvos(d.convos);
-          setActiveId(d.convos[0].id);
-          d.convos.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
-          convosLoadedRef.current = true;
-          return;
+          base = d.convos;
+          base.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
         }
       } catch {}
-      // 2. Fallback: localStorage
-      try {
-        const s = localStorage.getItem("aurora_convos");
-        if (s) {
-          const saved = JSON.parse(s);
-          if (saved?.length) {
-            setConvos(saved);
-            setActiveId(saved[0].id);
-            saved.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
-            convosLoadedRef.current = true;
-            return;
+
+      // 3. Fallback localStorage se Redis vazio
+      if (!base.length) {
+        try {
+          const s = localStorage.getItem("aurora_convos");
+          if (s) {
+            const saved = JSON.parse(s);
+            if (saved?.length) {
+              base = saved;
+              base.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
+            }
           }
-        }
-      } catch {}
-      // 3. Reconstruir do histórico do webhook
+        } catch {}
+      }
+
+      // 4. Sempre mesclar mensagens do webhook (fonte mais confiável)
       try {
         const r = await fetch("/api/webhook?debug=1");
         const d = await r.json();
         if (d.messages?.length) {
-          const rebuilt = await buildConvosFromWebhook(d.messages);
-          if (rebuilt.length) {
-            setConvos(rebuilt);
-            setActiveId(rebuilt[0].id);
+          if (!base.length) {
+            // Reconstruir do zero
+            base = await buildConvosFromWebhook(d.messages);
+          } else {
+            // Mesclar mensagens novas não vistas
+            for (const m of [...d.messages].reverse()) {
+              if (!m.id || seenIds.current.has(m.id)) continue;
+              seenIds.current.add(m.id);
+              const from = m.remoteJid || "";
+              if (!from || from.includes("@g.us")) continue;
+              const phone = from.replace("@s.whatsapp.net", "");
+              const existing = base.find(c => c.waJid === from || c.phone === phone);
+              if (!existing) continue;
+              const msgTime = m.timestamp ? new Date(m.timestamp * 1000) : new Date();
+              const timeStr = `${String(msgTime.getHours()).padStart(2,"0")}:${String(msgTime.getMinutes()).padStart(2,"0")}`;
+              existing.messages.push({ from: m.fromMe ? "aurora" : "cliente", text: m.text || "[mídia]", time: timeStr, id: `${m.id}-wb`, type: m.type || "text", waId: m.id, fileName: m.fileName || null, mimeType: m.mimeType || null });
+              if (!m.fromMe) existing.lastMsg = (m.text || "[mídia]").slice(0, 40);
+              existing.time = timeStr;
+            }
           }
         }
       } catch {}
+
+      // 5. Aplicar metadados salvos sobre as conversas reconstruídas
+      if (base.length) {
+        base = base.map(c => {
+          const meta = c.waJid ? metaMap[c.waJid] : null;
+          if (!meta) return c;
+          return { ...c, name: meta.name || c.name, paused: meta.paused ?? c.paused, leadData: { ...c.leadData, ...(meta.leadData || {}) } };
+        });
+        setConvos(base);
+        setActiveId(base[0].id);
+      }
+
       convosLoadedRef.current = true;
     }
     load();
   }, []);
 
-  // Salvar conversas no Redis + localStorage como backup
+  // Salvar conversas + metadados no Redis e localStorage
   useEffect(() => {
     if (!convosLoadedRef.current) return;
     if (!convos.length) return; // nunca salva lista vazia
@@ -507,12 +558,24 @@ export default function App() {
       messages: c.messages.map(m => ({ ...m, url: undefined, mediaBase64: undefined })),
       attachments: (c.attachments || []).map(a => ({ ...a, base64: undefined, url: undefined })),
     }));
-    // Salva no Redis
+    // Salva conversas completas no Redis
     fetch("/api/convos", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ convos: toSave }),
     }).catch(() => {});
+    // Salva metadados separadamente (backup pequeno e confiável)
+    const meta = {};
+    convos.forEach(c => {
+      if (c.waJid) meta[c.waJid] = { name: c.name, paused: c.paused, leadData: c.leadData };
+    });
+    if (Object.keys(meta).length) {
+      fetch("/api/meta", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meta }),
+      }).catch(() => {});
+    }
     // Backup no localStorage
     try {
       localStorage.setItem("aurora_convos", JSON.stringify(toSave));
@@ -1116,7 +1179,7 @@ export default function App() {
         {/* ── TOP NAV BAR ──────────────────────────────────────────────────── */}
         <div style={{ height: 48, background: W.leftHdr, display: "flex", alignItems: "center", padding: "0 16px", gap: 8, flexShrink: 0, borderBottom: `1px solid ${W.divider}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
-            <img src="/logo.svg" alt="PixelSAV" style={{ width: 32, height: 32 }} />
+            <img src="/icon-192.png" alt="PixelSAV" style={{ width: 32, height: 32, borderRadius: "50%" }} />
             <span style={{ color: W.text, fontWeight: 700, fontSize: 15 }}>Aurora · PixelSAV</span>
             <span style={{ marginLeft: 4, fontSize: 9, color: webhookStatus === "ok" ? W.green : "#ef4444" }}>{webhookStatus === "ok" ? "● online" : "● erro"}</span>
           </div>
@@ -1140,6 +1203,7 @@ export default function App() {
             if (crmSearch && !c.name.toLowerCase().includes(crmSearch.toLowerCase()) && !(c.phone || "").includes(crmSearch)) return false;
             if (crmProduto && ld.produto !== crmProduto) return false;
             if (crmTag && !(ld.tags || []).includes(crmTag)) return false;
+            if (crmVendedor && ld.vendedor !== crmVendedor) return false;
             return true;
           });
 
@@ -1161,6 +1225,11 @@ export default function App() {
                   style={{ background: W.inputBg, border: "none", borderRadius: 8, padding: "7px 10px", color: crmTag ? W.text : W.sub, fontSize: 13, outline: "none", cursor: "pointer" }}>
                   <option value="">Tag (todas)</option>
                   {allTags.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <select value={crmVendedor} onChange={e => setCrmVendedor(e.target.value)}
+                  style={{ background: W.inputBg, border: "none", borderRadius: 8, padding: "7px 10px", color: crmVendedor ? W.text : W.sub, fontSize: 13, outline: "none", cursor: "pointer" }}>
+                  <option value="">Vendedor (todos)</option>
+                  {VENDEDOR_NAMES.map(v => <option key={v} value={v} style={{ color: VENDEDORES[v].color }}>{v}</option>)}
                 </select>
                 <span style={{ color: W.sub, fontSize: 12 }}>{filtered.length} lead{filtered.length !== 1 ? "s" : ""}</span>
               </div>
@@ -1203,7 +1272,7 @@ export default function App() {
                             <div key={convo.id} style={{ background: W.leftBg, border: `1px solid ${W.divider}`, borderRadius: 10, padding: "12px", display: "flex", flexDirection: "column", gap: 8 }}>
                               {/* Avatar + name */}
                               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <div style={{ width: 36, height: 36, borderRadius: "50%", background: avatarColor(convo.name), display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
+                                <div style={{ width: 36, height: 36, borderRadius: "50%", background: avatarColor(convo.name, convo.leadData?.vendedor), display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 700, fontSize: 16, flexShrink: 0 }}>
                                   {(convo.name || "?")[0].toUpperCase()}
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1220,9 +1289,31 @@ export default function App() {
                                 </div>
                               )}
 
-                              {/* Score badge */}
-                              <div style={{ display: "inline-flex", alignSelf: "flex-start", background: si2.bg, color: si2.color, borderRadius: 8, padding: "2px 9px", fontSize: 11, fontWeight: 600 }}>
-                                {si2.emoji} {si2.label} {sc}/100
+                              {/* Score badge + vendedor */}
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                                <div style={{ display: "inline-flex", background: si2.bg, color: si2.color, borderRadius: 8, padding: "2px 9px", fontSize: 11, fontWeight: 600 }}>
+                                  {si2.emoji} {si2.label} {sc}/100
+                                </div>
+                                {ld.vendedor && VENDEDORES[ld.vendedor] && (
+                                  <div style={{ display: "inline-flex", background: VENDEDORES[ld.vendedor].bg, color: VENDEDORES[ld.vendedor].color, border: `1px solid ${VENDEDORES[ld.vendedor].border}`, borderRadius: 8, padding: "2px 9px", fontSize: 11, fontWeight: 600 }}>
+                                    👤 {ld.vendedor}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Tags fixas de vendedor */}
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                {VENDEDOR_NAMES.map(v => {
+                                  const vc = VENDEDORES[v];
+                                  const active2 = ld.vendedor === v;
+                                  return (
+                                    <span key={v} onClick={() => updateLead(convo.id, { vendedor: active2 ? undefined : v })}
+                                      title={active2 ? "Remover" : `Atribuir a ${v}`}
+                                      style={{ background: active2 ? vc.bg : "transparent", color: active2 ? vc.color : W.sub, border: `1px solid ${active2 ? vc.border : W.divider}`, borderRadius: 20, padding: "2px 9px", fontSize: 11, fontWeight: active2 ? 700 : 400, cursor: "pointer", transition: "all .15s" }}>
+                                      {v}
+                                    </span>
+                                  );
+                                })}
                               </div>
 
                               {/* Tags */}
@@ -1373,7 +1464,7 @@ export default function App() {
                 >
                   <div style={{ position: "relative", flexShrink: 0 }}>
                     <div style={{
-                      width: 49, height: 49, borderRadius: "50%", background: avatarColor(c.name),
+                      width: 49, height: 49, borderRadius: "50%", background: avatarColor(c.name, c.leadData?.vendedor),
                       display: "flex", alignItems: "center", justifyContent: "center",
                       color: "#fff", fontWeight: 700, fontSize: 20
                     }}>{(c.name || "?")[0].toUpperCase()}</div>
@@ -1394,6 +1485,7 @@ export default function App() {
                     <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                       <span style={{ color: W.sub, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{c.lastMsg || "Sem mensagens"}</span>
                       <span style={{ fontSize: 10, background: sci.bg, color: sci.color, borderRadius: 10, padding: "1px 6px", flexShrink: 0 }}>{sci.emoji}</span>
+                      {c.leadData?.vendedor && VENDEDORES[c.leadData.vendedor] && <span style={{ fontSize: 9, background: VENDEDORES[c.leadData.vendedor].bg, color: VENDEDORES[c.leadData.vendedor].color, borderRadius: 10, padding: "1px 5px", flexShrink: 0, fontWeight: 700 }}>{c.leadData.vendedor}</span>}
                       {c.paused && <span style={{ fontSize: 10, background: "#ef444420", color: "#ef4444", borderRadius: 10, padding: "1px 6px", flexShrink: 0 }}>⏸</span>}
                     </div>
                   </div>
@@ -1422,7 +1514,7 @@ export default function App() {
                   style={{ display: "none", background: "none", border: "none", color: W.icon, fontSize: 22, padding: "4px 6px", flexShrink: 0 }}
                   className="mobile-back">‹</button>
                 <div style={{
-                  width: 40, height: 40, borderRadius: "50%", background: avatarColor(active.name),
+                  width: 40, height: 40, borderRadius: "50%", background: avatarColor(active.name, active.leadData?.vendedor),
                   display: "flex", alignItems: "center", justifyContent: "center",
                   color: "#fff", fontWeight: 700, fontSize: 17, flexShrink: 0
                 }}>{(active.name || "?")[0].toUpperCase()}</div>
@@ -1483,7 +1575,7 @@ export default function App() {
                           {showAvatar ? (
                             <div style={{
                               width: 28, height: 28, borderRadius: "50%",
-                              background: isCliente ? avatarColor(active.name) : "linear-gradient(135deg,#00a884,#005c4b)",
+                              background: isCliente ? avatarColor(active.name, active.leadData?.vendedor) : "linear-gradient(135deg,#00a884,#005c4b)",
                               display: "flex", alignItems: "center", justifyContent: "center",
                               color: "#fff", fontSize: 12, fontWeight: 700, flexShrink: 0
                             }}>{isCliente ? (active.name || "?")[0].toUpperCase() : "A"}</div>
@@ -1764,6 +1856,22 @@ export default function App() {
                           />
                         </div>
                       ))}
+                      {/* Vendedor */}
+                      <div style={{ marginBottom: 7 }}>
+                        <div style={{ color: W.sub, fontSize: 11, marginBottom: 6 }}>Vendedor</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                          {VENDEDOR_NAMES.map(v => {
+                            const vc = VENDEDORES[v];
+                            const isActive = leadData.vendedor === v;
+                            return (
+                              <span key={v} onClick={() => updateLead(activeId, { vendedor: isActive ? undefined : v })}
+                                style={{ background: isActive ? vc.bg : "transparent", color: isActive ? vc.color : W.sub, border: `1px solid ${isActive ? vc.border : W.divider}`, borderRadius: 20, padding: "3px 10px", fontSize: 12, fontWeight: isActive ? 700 : 400, cursor: "pointer", transition: "all .15s" }}>
+                                {v}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
 
                     {/* Anexos */}
