@@ -4,10 +4,16 @@ const KEY = "aurora_meta_v1";
 let _redis = null;
 
 function getRedis() {
-  if (!_redis && process.env.REDIS_URL) {
-    _redis = new Redis(process.env.REDIS_URL, { lazyConnect: false, maxRetriesPerRequest: 2 });
-    _redis.on("error", () => { _redis = null; });
-  }
+  if (_redis && (_redis.status === "ready" || _redis.status === "connecting" || _redis.status === "reconnecting")) return _redis;
+  if (!process.env.REDIS_URL) return null;
+  _redis = new Redis(process.env.REDIS_URL, {
+    lazyConnect: false,
+    maxRetriesPerRequest: 3,
+    connectTimeout: 5000,
+    retryStrategy: (times) => Math.min(times * 300, 3000),
+    enableOfflineQueue: true,
+  });
+  _redis.on("error", (e) => { console.error("Redis meta:", e.message); });
   return _redis;
 }
 

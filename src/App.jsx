@@ -461,9 +461,9 @@ export default function App() {
         }
         const msgTime = m.timestamp ? new Date(m.timestamp * 1000) : new Date();
         const timeStr = `${String(msgTime.getHours()).padStart(2,"0")}:${String(msgTime.getMinutes()).padStart(2,"0")}`;
-        const novaMsg = { from: "cliente", text: m.text || "[mídia]", time: timeStr, id: `${m.id}-loaded`, type: m.type || "text", waId: m.id, fileName: m.fileName || null, mimeType: m.mimeType || null };
+        const novaMsg = { from: m.fromMe ? "aurora" : "cliente", text: m.text || "[mídia]", time: timeStr, id: `${m.id}-loaded`, type: m.type || "text", waId: m.id, fileName: m.fileName || null, mimeType: m.mimeType || null };
         map[from].messages.push(novaMsg);
-        map[from].lastMsg = novaMsg.text.slice(0, 40);
+        if (!m.fromMe) map[from].lastMsg = novaMsg.text.slice(0, 40);
         map[from].time = timeStr;
         if (m.id) seenIds.current.add(m.id);
       }
@@ -525,8 +525,8 @@ export default function App() {
               if (!existing) continue;
               const msgTime = m.timestamp ? new Date(m.timestamp * 1000) : new Date();
               const timeStr = `${String(msgTime.getHours()).padStart(2,"0")}:${String(msgTime.getMinutes()).padStart(2,"0")}`;
-              existing.messages.push({ from: "cliente", text: m.text || "[mídia]", time: timeStr, id: `${m.id}-wb`, type: m.type || "text", waId: m.id, fileName: m.fileName || null, mimeType: m.mimeType || null });
-              existing.lastMsg = (m.text || "[mídia]").slice(0, 40);
+              existing.messages.push({ from: m.fromMe ? "aurora" : "cliente", text: m.text || "[mídia]", time: timeStr, id: `${m.id}-wb`, type: m.type || "text", waId: m.id, fileName: m.fileName || null, mimeType: m.mimeType || null });
+              if (!m.fromMe) existing.lastMsg = (m.text || "[mídia]").slice(0, 40);
               existing.time = timeStr;
             }
           }
