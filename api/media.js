@@ -15,7 +15,7 @@ export default async function handler(req, res) {
     const r = await fetch(`${base}/chat/getBase64FromMediaMessage/${instance}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "apikey": evoKey },
-      body: JSON.stringify({ message: { key: { id: messageId, remoteJid, fromMe: false } } })
+      body: JSON.stringify({ message: { key: { id: messageId, remoteJid, fromMe: req.body?.fromMe ?? false } } })
     });
     const d = await r.json();
     if (d.base64) {

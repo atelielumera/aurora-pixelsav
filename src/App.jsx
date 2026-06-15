@@ -476,6 +476,7 @@ export default function App() {
       let metaMap = {};
 
       // 1. localStorage PRIMEIRO — síncrono, mostra dados imediatamente
+      // convosLoadedRef permanece false até tudo carregar para não salvar dados parciais no Redis
       try {
         const s = localStorage.getItem("aurora_convos");
         if (s) {
@@ -483,10 +484,8 @@ export default function App() {
           if (saved?.length) {
             base = saved;
             base.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
-            // Mostra imediatamente para o usuário não ver tela vazia
             setConvos(base);
             setActiveId(base[0].id);
-            convosLoadedRef.current = true;
           }
         }
       } catch {}
@@ -547,6 +546,8 @@ export default function App() {
           if (!meta) return c;
           return { ...c, name: meta.name || c.name, paused: meta.paused ?? c.paused, leadData: { ...c.leadData, ...(meta.leadData || {}) } };
         });
+        // Marca todos os contatos existentes como "já saudados" para não mandar saudação de novo
+        base.forEach(c => { if (c.waJid && c.messages?.length) saudacaoEnviada.current.add(c.waJid); });
         setConvos(base);
         setActiveId(prev => prev || base[0].id);
       }
@@ -556,10 +557,13 @@ export default function App() {
     load();
   }, []);
 
-  // Salvar conversas + metadados no Redis e localStorage
+  // Salvar conversas + metadados no Redis e localStorage (debounced 2s para não sobrecarregar)
+  const saveTimerRef = useRef(null);
   useEffect(() => {
     if (!convosLoadedRef.current) return;
     if (!convos.length) return; // nunca salva lista vazia
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
     const toSave = convos.map(c => ({
       ...c,
       messages: c.messages.map(m => ({ ...m, url: undefined, mediaBase64: undefined })),
@@ -587,6 +591,7 @@ export default function App() {
     try {
       localStorage.setItem("aurora_convos", JSON.stringify(toSave));
     } catch {}
+    }, 2000);
   }, [convos]);
 
   useEffect(() => {
@@ -669,6 +674,9 @@ export default function App() {
           const currentCfg = cfgRef.current;
           if (!treatAsAurora && isNewContact && !saudacaoEnviada.current.has(from) && currentCfg.evoUrl && currentCfg.evoKey && currentCfg.instance) {
             saudacaoEnviada.current.add(from);
+            // Previne que o echo da saudação seja tratado como mensagem do cliente
+            pendingSentRef.current.add(SAUDACAO);
+            setTimeout(() => pendingSentRef.current.delete(SAUDACAO), 15000);
             // 1ª mensagem: saudação imediata
             fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `message/sendText/${currentCfg.instance}` })}`, {
               method: "POST", headers: { "Content-Type": "application/json" },
@@ -740,8 +748,10 @@ export default function App() {
       if (!c.evoUrl || !c.evoKey || !c.instance) return;
       const convos = convosRef.current;
       if (!convos.length) return;
-      // Busca para as últimas 5 conversas ativas
-      const targets = [...convos].slice(0, 5);
+      // Prioriza conversa ativa, depois as mais recentes
+      const activeConvo = convos.find(cv => cv.id === activeIdRef.current);
+      const rest = convos.filter(cv => cv.id !== activeIdRef.current).slice(0, 4);
+      const targets = activeConvo ? [activeConvo, ...rest] : convos.slice(0, 5);
       for (const convo of targets) {
         if (!convo.waJid) continue;
         try {
@@ -755,6 +765,8 @@ export default function App() {
           for (const m of msgs) {
             const msgId = m?.key?.id || m?.id;
             if (!msgId || seenIds.current.has(msgId)) continue;
+            // Garantia extra: só processar mensagens que SÃO de fromMe=true
+            if (m?.key?.fromMe !== true) continue;
             const text = m?.message?.conversation || m?.message?.extendedTextMessage?.text || m?.body || "";
             if (!text) continue;
             seenIds.current.add(msgId);
@@ -935,12 +947,12 @@ export default function App() {
 
       let resumoIA = "";
       if (cfg.geminiKey && historico) {
-        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${cfg.geminiKey}`, {
+        const r = await fetch("/api/gemini", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            system_instruction: { parts: [{ text: "Gere um resumo executivo comercial em português. Inclua: o que o cliente quer, dados coletados, próximos passos sugeridos. Máximo 8 linhas, sem markdown." }] },
+            apiKey: cfg.geminiKey,
+            system: "Gere um resumo executivo comercial em português. Inclua: o que o cliente quer, dados coletados, próximos passos sugeridos. Máximo 8 linhas, sem markdown.",
             contents: [{ role: "user", parts: [{ text: `Resumo desta conversa:\n${historico}` }] }],
-            generationConfig: { temperature: 0.2, maxOutputTokens: 400 }
           })
         });
         const d = await r.json();
@@ -1719,7 +1731,9 @@ export default function App() {
                     const isCliente = m.from === "cliente";
                     const prev = msgs[i - 1];
                     const showAvatar = !prev || prev.from !== m.from;
-                    const showDate = !prev || Math.floor((m.id || 0) / 86400000) !== Math.floor(((prev.id || 0)) / 86400000);
+                    const mDay = m.timestamp ? Math.floor(m.timestamp / 86400) : Math.floor((typeof m.id === "number" ? m.id : Date.now()) / 86400000);
+                    const pDay = prev?.timestamp ? Math.floor(prev.timestamp / 86400) : Math.floor((typeof prev?.id === "number" ? prev.id : 0) / 86400000);
+                    const showDate = !prev || mDay !== pDay;
 
                     return (
                       <React.Fragment key={m.id || i}>

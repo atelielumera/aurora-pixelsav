@@ -56,7 +56,9 @@ export default async function handler(req, res) {
       const { convos } = req.body || {};
       if (!Array.isArray(convos) || convos.length === 0) { res.status(400).json({ error: "invalid or empty" }); return; }
       // Strip base64/url to keep size manageable — media fetched on demand
-      const toSave = convos.map(c => ({
+      // Limit to 200 most recent convos to prevent unbounded Redis growth
+      const limited = convos.slice(0, 200);
+      const toSave = limited.map(c => ({
         ...c,
         messages: (c.messages || []).map(m => ({ ...m, url: undefined, mediaBase64: undefined })),
         attachments: (c.attachments || []).map(a => ({ ...a, base64: undefined, url: undefined })),
@@ -64,7 +66,7 @@ export default async function handler(req, res) {
       if (r) {
         const json = JSON.stringify(toSave);
         await r.set(KEY, json);
-        res.status(200).json({ ok: true, saved: "redis", count: toSave.length, bytes: json.length });
+        res.status(200).json({ ok: true, saved: "redis", count: toSave.length, bytes: json.length, limited: convos.length > 200 });
       } else {
         res.status(200).json({ ok: false, saved: "none", error: "no redis", redisUrl: !!process.env.REDIS_URL });
       }
