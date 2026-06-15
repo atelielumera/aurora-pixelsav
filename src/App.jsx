@@ -422,6 +422,7 @@ export default function App() {
   const waPollingRef = useRef(null);
   const seenIds = useRef(new Set());
   const saudacaoEnviada = useRef(new Set());
+  const pendingSentRef = useRef(new Set());
   const convosRef = useRef(convos);
   const cfgRef = useRef(cfg);
   const activeIdRef = useRef(activeId);
@@ -644,16 +645,23 @@ export default function App() {
             ? `data:${m.mimeType || (type === "image" ? "image/jpeg" : "application/octet-stream")};base64,${m.mediaBase64}`
             : null;
           const isMedia = ["image","doc","audio"].includes(type);
-          const novaMsg = { from: isFromMe ? "aurora" : "cliente", text, time: timeStr, id: Date.now() + Math.random(), type, waId: msgId, url: mediaUrl, fileName: m.fileName || null, mimeType: m.mimeType || null, needsMedia: !isFromMe && isMedia && !mediaUrl };
+
+          // Detect echo of a message sent via confirmSend() to avoid duplicate
+          const isPendingSent = pendingSentRef.current.has(text);
+          if (isPendingSent) pendingSentRef.current.delete(text);
+          // Treat as aurora message if fromMe OR if it matches a pending sent message
+          const treatAsAurora = isFromMe || isPendingSent;
+
+          const novaMsg = { from: treatAsAurora ? "aurora" : "cliente", text, time: timeStr, id: Date.now() + Math.random(), type, waId: msgId, url: mediaUrl, fileName: m.fileName || null, mimeType: m.mimeType || null, needsMedia: !treatAsAurora && isMedia && !mediaUrl };
 
           const existingConvo = convosRef.current.find(c => c.waJid === from || c.phone === phone);
           const novoId = Date.now() + Math.random();
           const targetConvoId = existingConvo ? existingConvo.id : novoId;
 
-          // Saudação e timer Gemini apenas para mensagens recebidas (não fromMe)
+          // Saudação e timer Gemini apenas para mensagens recebidas (não aurora)
           const isNewContact = !existingConvo;
           const currentCfg = cfgRef.current;
-          if (!isFromMe && isNewContact && !saudacaoEnviada.current.has(from) && currentCfg.evoUrl && currentCfg.evoKey && currentCfg.instance) {
+          if (!treatAsAurora && isNewContact && !saudacaoEnviada.current.has(from) && currentCfg.evoUrl && currentCfg.evoKey && currentCfg.instance) {
             saudacaoEnviada.current.add(from);
             // 1ª mensagem: saudação imediata
             fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `message/sendText/${currentCfg.instance}` })}`, {
@@ -688,12 +696,12 @@ export default function App() {
               return cs.map(c => c.id === existing.id ? {
                 ...c,
                 messages: [...c.messages, novaMsg],
-                lastMsg: isFromMe ? c.lastMsg : text.slice(0, 40),
-                time: isFromMe ? c.time : timeStr,
-                unread: (isFromMe || activeIdRef.current === c.id) ? 0 : (c.unread || 0) + 1,
-                leadData: isFromMe ? c.leadData : extractLead([...c.messages, novaMsg], c.leadData),
+                lastMsg: treatAsAurora ? c.lastMsg : text.slice(0, 40),
+                time: treatAsAurora ? c.time : timeStr,
+                unread: (treatAsAurora || activeIdRef.current === c.id) ? 0 : (c.unread || 0) + 1,
+                leadData: treatAsAurora ? c.leadData : extractLead([...c.messages, novaMsg], c.leadData),
               } : c);
-            } else if (!isFromMe) {
+            } else if (!treatAsAurora) {
               // Só cria nova conversa para mensagens recebidas
               const initialLead = extractLead([novaMsg], { nome: name !== phone ? name : "" });
               setActiveId(novoId);
@@ -702,8 +710,8 @@ export default function App() {
             return cs;
           });
 
-          // Só dispara Gemini para mensagens recebidas
-          if (!isFromMe) setTimeout(() => {
+          // Só dispara Gemini para mensagens recebidas (não aurora)
+          if (!treatAsAurora) setTimeout(() => {
             const convo = convosRef.current.find(c => c.id === targetConvoId || c.waJid === from);
             if (!convo || convo.paused) return;
             setActiveId(convo.id);
@@ -744,9 +752,11 @@ export default function App() {
     const msg = { from: "aurora", text, time: ts(), id: localId, type: "text" };
     updateConvo(activeId, { messages: [...msgs, msg], lastMsg: text.slice(0, 40), time: ts() });
     setSuggestion(null); setEditedSug("");
+    pendingSentRef.current.add(text);
+    setTimeout(() => pendingSentRef.current.delete(text), 10000);
     if (cfg.evoUrl && cfg.evoKey && cfg.instance && active.waJid) {
       try {
-        const number = active.waJid.replace("@s.whatsapp.net", "").replace("@g.us", "");
+        const number = active.waJid; // send full JID, Evolution API v2 accepts this
         const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `message/sendText/${cfg.instance}` })}`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ number, text })
