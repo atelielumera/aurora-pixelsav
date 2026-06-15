@@ -622,11 +622,20 @@ export default function App() {
 
   function deleteConvo(id) {
     const convo = convos.find(c => c.id === id);
-    // Remove mensagens do Redis e localStorage para não voltar no reload
+    const remaining = convos.filter(c => c.id !== id);
+    // Remove do webhook Redis
     if (convo?.waJid) {
       fetch(`/api/webhook?deleteJid=${encodeURIComponent(convo.waJid)}`, { method: "DELETE" }).catch(() => {});
     }
-    setConvos(cs => cs.filter(c => c.id !== id));
+    // Salva imediatamente no localStorage e Redis sem ela
+    const toSave = remaining.map(c => ({
+      ...c,
+      messages: c.messages.map(m => ({ ...m, url: undefined, mediaBase64: undefined })),
+      attachments: (c.attachments || []).map(a => ({ ...a, base64: undefined, url: undefined })),
+    }));
+    try { localStorage.setItem("aurora_convos", JSON.stringify(toSave)); } catch {}
+    fetch("/api/convos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ convos: toSave }) }).catch(() => {});
+    setConvos(remaining);
     if (activeId === id) setActiveId(null);
   }
 
