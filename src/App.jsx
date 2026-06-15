@@ -1748,53 +1748,7 @@ export default function App() {
                     </div>
                   )}
 
-                  {/* Botões resumo */}
-                  {msgs.length > 0 && (
-                    <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <button onClick={() => setShowResumo(v => !v)}
-                        style={{ flex: 1, minWidth: 120, background: W.inputBg, border: "none", borderRadius: 8, padding: "9px 0", color: W.text, fontSize: 13 }}>
-                        📋 Ver resumo
-                      </button>
-                      {resumoSent[activeId] ? (
-                        <div style={{ flex: 2, minWidth: 160, background: "#00a88420", border: "1px solid #00a88444", borderRadius: 8, padding: "9px 0", color: W.green, fontSize: 13, textAlign: "center" }}>
-                          ✓ Resumo enviado!
-                        </div>
-                      ) : (
-                        <button onClick={handleSendResumo} disabled={resumoSending}
-                          style={{ flex: 2, minWidth: 160, background: "#005c4b", border: "none", borderRadius: 8, padding: "9px 0", color: "#fff", fontSize: 13, fontWeight: 600, opacity: resumoSending ? .7 : 1 }}>
-                          {resumoSending ? "Enviando..." : `📤 Enviar resumo${attachments.length ? ` + ${attachments.length} anexos` : ""} ao grupo`}
-                        </button>
-                      )}
-                    </div>
-                  )}
 
-                  {/* Erro resumo */}
-                  {resumoErr && <div style={{ color: "#ef4444", fontSize: 12, marginTop: 6 }}>{resumoErr}</div>}
-
-                  {/* Preview resumo */}
-                  {showResumo && (
-                    <div style={{ background: "#0d1f2d", border: "1px solid #2a3942", borderRadius: 10, padding: 14, marginTop: 8, animation: "fadeUp .2s ease" }}>
-                      <pre style={{ color: W.text, fontSize: 13, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{resumoPreview()}</pre>
-                      {attachments.length > 0 && (
-                        <div style={{ marginTop: 10 }}>
-                          <div style={{ color: W.sub, fontSize: 12, marginBottom: 6 }}>📂 Anexos ({attachments.length})</div>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            {attachments.map(a => (
-                              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, background: W.inputBg, borderRadius: 6, padding: "6px 10px" }}>
-                                {a.type === "image" ? (
-                                  <img src={a.url} alt={a.fileName} style={{ width: 36, height: 36, borderRadius: 4, objectFit: "cover", cursor: "pointer" }} onClick={() => setLightbox(a.url)} />
-                                ) : <span style={{ fontSize: 22 }}>📎</span>}
-                                <div>
-                                  <div style={{ color: W.text, fontSize: 12 }}>{a.fileName}</div>
-                                  <div style={{ color: W.sub, fontSize: 11 }}>{(a.size / 1024).toFixed(1)} KB</div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
 
                   <div ref={bottomRef} />
                 </div>
@@ -1899,6 +1853,48 @@ export default function App() {
                   </div>
                 )}
               </div>
+
+              {/* Barra de resumo — sempre visível acima do input */}
+              {msgs.length > 0 && (
+                <div style={{ background: W.leftHdr, borderTop: `1px solid ${W.divider}20`, padding: "6px 16px", display: "flex", gap: 8, flexShrink: 0 }}>
+                  <button onClick={() => setShowResumo(v => !v)}
+                    style={{ flex: 1, background: showResumo ? W.active : W.inputBg, border: "none", borderRadius: 8, padding: "7px 0", color: showResumo ? W.green : W.text, fontSize: 12, cursor: "pointer", fontWeight: showResumo ? 700 : 400 }}>
+                    📋 Resumo
+                  </button>
+                  {resumoSent[activeId] ? (
+                    <div style={{ flex: 2, background: "#00a88420", border: "1px solid #00a88444", borderRadius: 8, padding: "7px 0", color: W.green, fontSize: 12, textAlign: "center" }}>✓ Enviado!</div>
+                  ) : (
+                    <button onClick={handleSendResumo} disabled={resumoSending}
+                      style={{ flex: 2, background: "#005c4b", border: "none", borderRadius: 8, padding: "7px 0", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: resumoSending ? .7 : 1 }}>
+                      {resumoSending ? "Enviando..." : `📤 Enviar ao grupo${attachments.length ? ` +${attachments.length}` : ""}`}
+                    </button>
+                  )}
+                </div>
+              )}
+              {resumoErr && <div style={{ color: "#ef4444", fontSize: 12, padding: "4px 16px", background: W.leftHdr, flexShrink: 0 }}>{resumoErr}</div>}
+
+              {/* Preview resumo */}
+              {showResumo && (
+                <div style={{ background: "#0d1f2d", borderTop: `1px solid ${W.divider}`, padding: 14, flexShrink: 0, maxHeight: 240, overflowY: "auto" }}>
+                  <pre style={{ color: W.text, fontSize: 13, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{resumoPreview()}</pre>
+                  {attachments.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ color: W.sub, fontSize: 12, marginBottom: 6 }}>📂 Anexos ({attachments.length})</div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {attachments.map(a => (
+                          <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, background: W.inputBg, borderRadius: 6, padding: "6px 10px" }}>
+                            {a.type === "image" ? <img src={a.url} alt={a.fileName} style={{ width: 36, height: 36, borderRadius: 4, objectFit: "cover", cursor: "pointer" }} onClick={() => setLightbox(a.url)} /> : <span style={{ fontSize: 22 }}>📎</span>}
+                            <div>
+                              <div style={{ color: W.text, fontSize: 12 }}>{a.fileName}</div>
+                              <div style={{ color: W.sub, fontSize: 11 }}>{(a.size / 1024).toFixed(1)} KB</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Input bar */}
               <div style={{ background: W.inputArea, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10, borderTop: `1px solid ${W.divider}20`, flexShrink: 0 }}>
