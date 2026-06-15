@@ -1079,7 +1079,7 @@ export default function App() {
       // v2 retorna o QR direto no create — usar se disponível
       const qrDireto = extractQrFromResponse(d);
       if (qrDireto) { setWaQr(qrDireto); setWaState("qr"); return; }
-      if (isConnected(d)) { setWaConnectedName(instanceName); setWaState("connected"); return; }
+      if (isConnected(d)) { setWaConnectedName(instanceName); setWaState("connected"); configureWebhook(true); return; }
       // Sem QR na resposta — aguardar 1.5s e buscar
       await new Promise(r => setTimeout(r, 1500));
       await refreshQrFor(instanceName, newCfg);
@@ -1096,12 +1096,12 @@ export default function App() {
       // Primeiro verificar se já está conectado
       const stateRes = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `instance/connectionState/${instanceName}` })}`);
       const stateD = await stateRes.json().catch(() => ({}));
-      if (isConnected(stateD)) { setWaConnectedName(instanceName); setWaState("connected"); return; }
+      if (isConnected(stateD)) { setWaConnectedName(instanceName); setWaState("connected"); configureWebhook(true); return; }
 
       // Buscar QR
       const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `instance/connect/${instanceName}` })}`);
       const d = await r.json().catch(() => ({}));
-      if (isConnected(d)) { setWaConnectedName(instanceName); setWaState("connected"); return; }
+      if (isConnected(d)) { setWaConnectedName(instanceName); setWaState("connected"); configureWebhook(true); return; }
       const qr = extractQrFromResponse(d);
       if (qr) { setWaQr(qr); setWaState("qr"); }
       else { setWaQr(""); setWaState("qr"); }
@@ -1115,7 +1115,7 @@ export default function App() {
       try {
         const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `instance/connectionState/${instanceName}` })}`);
         const d = await r.json().catch(() => ({}));
-        if (isConnected(d)) { setWaConnectedName(instanceName); setWaState("connected"); clearInterval(waPollingQrRef.current); }
+        if (isConnected(d)) { setWaConnectedName(instanceName); setWaState("connected"); clearInterval(waPollingQrRef.current); configureWebhook(true); }
       } catch {}
     };
     waPollingQrRef.current = setInterval(poll, 4000);
@@ -1123,11 +1123,12 @@ export default function App() {
   }, [showWA, waState, cfg]);
 
   const [webhookConfigStatus, setWebhookConfigStatus] = useState("");
-  async function configureWebhook() {
-    setWebhookConfigStatus("configurando...");
+  async function configureWebhook(silent = false) {
+    if (!silent) setWebhookConfigStatus("configurando...");
     try {
+      const c = cfgRef.current;
       const webhookUrl = `${window.location.origin}/api/webhook`;
-      const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `webhook/set/${cfg.instance}` })}`, {
+      const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: c.evoUrl, evoKey: c.evoKey, path: `webhook/set/${c.instance}` })}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url: webhookUrl,
@@ -1136,9 +1137,9 @@ export default function App() {
           events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "SEND_MESSAGE"],
         })
       });
-      if (r.ok) setWebhookConfigStatus("✅ Webhook configurado! Mensagens enviadas pelo WhatsApp agora aparecerão aqui.");
-      else { const d = await r.json().catch(() => ({})); setWebhookConfigStatus(`❌ Erro: ${d?.message || r.status}`); }
-    } catch (e) { setWebhookConfigStatus(`❌ ${e.message}`); }
+      if (r.ok) { if (!silent) setWebhookConfigStatus("✅ Webhook configurado! Mensagens enviadas pelo WhatsApp agora aparecerão aqui."); }
+      else { const d = await r.json().catch(() => ({})); if (!silent) setWebhookConfigStatus(`❌ Erro: ${d?.message || r.status}`); }
+    } catch (e) { if (!silent) setWebhookConfigStatus(`❌ ${e.message}`); }
   }
 
   async function disconnectWA() {
