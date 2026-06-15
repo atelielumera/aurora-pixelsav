@@ -540,10 +540,6 @@ export default function App() {
       } catch {}
 
       // 5. Aplicar metadados e atualizar tela com versão final completa
-      // Filtrar contatos deletados
-      if (base.length) {
-        base = base.filter(c => !c.waJid || !deletedJidsRef.current.has(c.waJid));
-      }
       if (base.length) {
         base = base.map(c => {
           const meta = c.waJid ? metaMap[c.waJid] : null;
@@ -624,12 +620,11 @@ export default function App() {
   function updateLead(id, patch) { setConvos(cs => cs.map(c => c.id === id ? { ...c, leadData: { ...c.leadData, ...patch } } : c)); }
   function saveCfg() { try { localStorage.setItem("aurora_cfg", JSON.stringify(cfg)); } catch {} setShowCfg(false); }
 
-  const deletedJidsRef = useRef(new Set(JSON.parse(localStorage.getItem("aurora_deleted_jids") || "[]")));
   function deleteConvo(id) {
     const convo = convos.find(c => c.id === id);
+    // Remove mensagens do Redis e localStorage para não voltar no reload
     if (convo?.waJid) {
-      deletedJidsRef.current.add(convo.waJid);
-      try { localStorage.setItem("aurora_deleted_jids", JSON.stringify([...deletedJidsRef.current])); } catch {}
+      fetch(`/api/webhook?deleteJid=${encodeURIComponent(convo.waJid)}`, { method: "DELETE" }).catch(() => {});
     }
     setConvos(cs => cs.filter(c => c.id !== id));
     if (activeId === id) setActiveId(null);
@@ -652,7 +647,6 @@ export default function App() {
         for (const m of data.messages) {
           const msgId = m.id;
           if (!msgId || seenIds.current.has(msgId)) continue;
-          if (m.remoteJid && deletedJidsRef.current.has(m.remoteJid)) { seenIds.current.add(msgId); continue; }
           seenIds.current.add(msgId);
 
           const isFromMe = !!m.fromMe;

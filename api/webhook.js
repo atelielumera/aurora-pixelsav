@@ -175,5 +175,25 @@ export default async function handler(req, res) {
     return;
   }
 
+  if (req.method === "DELETE") {
+    const jid = req.query.deleteJid;
+    if (!jid) { res.status(400).json({ error: "missing deleteJid" }); return; }
+    const r = getRedis();
+    if (r) {
+      try {
+        const list = await r.lrange(KEY, 0, MAX - 1);
+        const filtered = list.filter(s => { try { return JSON.parse(s).remoteJid !== jid; } catch { return true; } });
+        if (filtered.length < list.length) {
+          await r.del(KEY);
+          if (filtered.length) await r.rpush(KEY, ...filtered);
+        }
+      } catch {}
+    } else {
+      global._msgs = (global._msgs || []).filter(m => m.remoteJid !== jid);
+    }
+    res.status(200).json({ ok: true });
+    return;
+  }
+
   res.status(405).end();
 }
