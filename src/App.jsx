@@ -708,12 +708,15 @@ export default function App() {
                 leadData: treatAsAurora ? c.leadData : extractLead([...c.messages, novaMsg], c.leadData),
               } : c);
             } else if (!treatAsAurora) {
-              // Só cria nova conversa para mensagens recebidas
+              // Nova conversa de cliente
               const initialLead = extractLead([novaMsg], { nome: name !== phone ? name : "" });
               setActiveId(novoId);
               return [{ id: novoId, name, phone, waJid: from, lastMsg: text.slice(0, 40), time: timeStr, unread: 0, messages: [SAUDACAO_MSG, novaMsg], leadData: initialLead, attachments: [], paused: false }, ...cs];
+            } else {
+              // fromMe mas conversa não existe ainda — criar sem saudação
+              const initialLead = extractLead([], { nome: name !== phone ? name : "" });
+              return [{ id: novoId, name, phone, waJid: from, lastMsg: text.slice(0, 40), time: timeStr, unread: 0, messages: [novaMsg], leadData: initialLead, attachments: [], paused: false }, ...cs];
             }
-            return cs;
           });
 
           // Só dispara Gemini para mensagens recebidas (não aurora)
@@ -1069,6 +1072,25 @@ export default function App() {
     return () => clearInterval(waPollingQrRef.current);
   }, [showWA, waState, cfg]);
 
+  const [webhookConfigStatus, setWebhookConfigStatus] = useState("");
+  async function configureWebhook() {
+    setWebhookConfigStatus("configurando...");
+    try {
+      const webhookUrl = `${window.location.origin}/api/webhook`;
+      const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `webhook/set/${cfg.instance}` })}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: webhookUrl,
+          webhook_by_events: false,
+          webhook_base64: false,
+          events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "SEND_MESSAGE"],
+        })
+      });
+      if (r.ok) setWebhookConfigStatus("✅ Webhook configurado! Mensagens enviadas pelo WhatsApp agora aparecerão aqui.");
+      else { const d = await r.json().catch(() => ({})); setWebhookConfigStatus(`❌ Erro: ${d?.message || r.status}`); }
+    } catch (e) { setWebhookConfigStatus(`❌ ${e.message}`); }
+  }
+
   async function disconnectWA() {
     try {
       await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `instance/logout/${cfg.instance}` })}`, { method: "DELETE" });
@@ -1260,7 +1282,15 @@ export default function App() {
               <div style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
                 <div style={{ color: W.green, fontWeight: 700, fontSize: 18, marginBottom: 8 }}>WhatsApp Conectado!</div>
-                <div style={{ color: W.sub, fontSize: 14, marginBottom: 24 }}>{waConnectedName}</div>
+                <div style={{ color: W.sub, fontSize: 14, marginBottom: 16 }}>{waConnectedName}</div>
+                <button onClick={configureWebhook} style={{ background: W.green, border: "none", borderRadius: 8, padding: "10px 24px", color: "#fff", fontSize: 13, cursor: "pointer", fontWeight: 700, marginBottom: 12, width: "100%" }}>
+                  🔗 Configurar Webhook (receber mensagens enviadas)
+                </button>
+                {webhookConfigStatus && (
+                  <div style={{ background: webhookConfigStatus.startsWith("✅") ? "#10b98115" : "#ef444415", border: `1px solid ${webhookConfigStatus.startsWith("✅") ? "#10b98140" : "#ef444440"}`, borderRadius: 8, padding: "8px 12px", color: webhookConfigStatus.startsWith("✅") ? W.green : "#ef4444", fontSize: 12, marginBottom: 12, textAlign: "left" }}>
+                    {webhookConfigStatus}
+                  </div>
+                )}
                 <button onClick={disconnectWA} style={{ background: "#ef444420", border: "1px solid #ef4444", borderRadius: 8, padding: "10px 24px", color: "#ef4444", fontSize: 13, cursor: "pointer" }}>Desconectar</button>
               </div>
             )}
