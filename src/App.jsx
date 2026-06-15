@@ -632,6 +632,7 @@ export default function App() {
           if (!msgId || seenIds.current.has(msgId)) continue;
           seenIds.current.add(msgId);
 
+          const isFromMe = !!m.fromMe;
           const from = m.remoteJid || "";
           const name = m.pushName || from.replace("@s.whatsapp.net", "");
           const phone = from.replace("@s.whatsapp.net", "").replace("@g.us", "");
@@ -643,16 +644,16 @@ export default function App() {
             ? `data:${m.mimeType || (type === "image" ? "image/jpeg" : "application/octet-stream")};base64,${m.mediaBase64}`
             : null;
           const isMedia = ["image","doc","audio"].includes(type);
-          const novaMsg = { from: "cliente", text, time: timeStr, id: Date.now() + Math.random(), type, waId: msgId, url: mediaUrl, fileName: m.fileName || null, mimeType: m.mimeType || null, needsMedia: isMedia && !mediaUrl };
+          const novaMsg = { from: isFromMe ? "aurora" : "cliente", text, time: timeStr, id: Date.now() + Math.random(), type, waId: msgId, url: mediaUrl, fileName: m.fileName || null, mimeType: m.mimeType || null, needsMedia: !isFromMe && isMedia && !mediaUrl };
 
           const existingConvo = convosRef.current.find(c => c.waJid === from || c.phone === phone);
           const novoId = Date.now() + Math.random();
           const targetConvoId = existingConvo ? existingConvo.id : novoId;
 
-          // Disparar side-effects FORA do setConvos (que deve ser pura)
+          // Saudação e timer Gemini apenas para mensagens recebidas (não fromMe)
           const isNewContact = !existingConvo;
           const currentCfg = cfgRef.current;
-          if (isNewContact && !saudacaoEnviada.current.has(from) && currentCfg.evoUrl && currentCfg.evoKey && currentCfg.instance) {
+          if (!isFromMe && isNewContact && !saudacaoEnviada.current.has(from) && currentCfg.evoUrl && currentCfg.evoKey && currentCfg.instance) {
             saudacaoEnviada.current.add(from);
             // 1ª mensagem: saudação imediata
             fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `message/sendText/${currentCfg.instance}` })}`, {
@@ -687,18 +688,22 @@ export default function App() {
               return cs.map(c => c.id === existing.id ? {
                 ...c,
                 messages: [...c.messages, novaMsg],
-                lastMsg: text.slice(0, 40), time: timeStr,
-                unread: activeIdRef.current === c.id ? 0 : (c.unread || 0) + 1,
-                leadData: extractLead([...c.messages, novaMsg], c.leadData),
+                lastMsg: isFromMe ? c.lastMsg : text.slice(0, 40),
+                time: isFromMe ? c.time : timeStr,
+                unread: (isFromMe || activeIdRef.current === c.id) ? 0 : (c.unread || 0) + 1,
+                leadData: isFromMe ? c.leadData : extractLead([...c.messages, novaMsg], c.leadData),
               } : c);
-            } else {
+            } else if (!isFromMe) {
+              // Só cria nova conversa para mensagens recebidas
               const initialLead = extractLead([novaMsg], { nome: name !== phone ? name : "" });
               setActiveId(novoId);
               return [{ id: novoId, name, phone, waJid: from, lastMsg: text.slice(0, 40), time: timeStr, unread: 0, messages: [SAUDACAO_MSG, novaMsg], leadData: initialLead, attachments: [], paused: false }, ...cs];
             }
+            return cs;
           });
 
-          setTimeout(() => {
+          // Só dispara Gemini para mensagens recebidas
+          if (!isFromMe) setTimeout(() => {
             const convo = convosRef.current.find(c => c.id === targetConvoId || c.waJid === from);
             if (!convo || convo.paused) return;
             setActiveId(convo.id);
