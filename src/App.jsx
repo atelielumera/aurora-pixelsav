@@ -475,47 +475,53 @@ export default function App() {
       let base = [];
       let metaMap = {};
 
-      // 1. Carregar metadados (leadData, name, paused) salvos separadamente
+      // 1. localStorage PRIMEIRO — síncrono, mostra dados imediatamente
+      try {
+        const s = localStorage.getItem("aurora_convos");
+        if (s) {
+          const saved = JSON.parse(s);
+          if (saved?.length) {
+            base = saved;
+            base.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
+            // Mostra imediatamente para o usuário não ver tela vazia
+            setConvos(base);
+            setActiveId(base[0].id);
+            convosLoadedRef.current = true;
+          }
+        }
+      } catch {}
+
+      // 2. Carregar metadados do servidor (nome, pausa, leadData)
       try {
         const r = await fetch("/api/meta");
         const d = await r.json();
         if (d.meta && typeof d.meta === "object") metaMap = d.meta;
       } catch {}
 
-      // 2. Tenta carregar conversas salvas do Redis
+      // 3. Tenta carregar conversas completas do Redis (mais confiável que localStorage)
       try {
         const r = await fetch("/api/convos");
         const d = await r.json();
         if (d.convos?.length) {
-          base = d.convos;
-          base.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
+          // Usar Redis se tiver mais conversas ou mensagens que o localStorage
+          const redisTotal = d.convos.reduce((n, c) => n + (c.messages?.length || 0), 0);
+          const localTotal = base.reduce((n, c) => n + (c.messages?.length || 0), 0);
+          if (redisTotal >= localTotal) {
+            base = d.convos;
+            seenIds.current = new Set();
+            base.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
+          }
         }
       } catch {}
 
-      // 3. Fallback localStorage se Redis vazio
-      if (!base.length) {
-        try {
-          const s = localStorage.getItem("aurora_convos");
-          if (s) {
-            const saved = JSON.parse(s);
-            if (saved?.length) {
-              base = saved;
-              base.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
-            }
-          }
-        } catch {}
-      }
-
-      // 4. Sempre mesclar mensagens do webhook (fonte mais confiável)
+      // 4. Mesclar mensagens do webhook (últimas 500)
       try {
         const r = await fetch("/api/webhook?debug=1");
         const d = await r.json();
         if (d.messages?.length) {
           if (!base.length) {
-            // Reconstruir do zero
             base = await buildConvosFromWebhook(d.messages);
           } else {
-            // Mesclar mensagens novas não vistas
             for (const m of [...d.messages].reverse()) {
               if (!m.id || seenIds.current.has(m.id)) continue;
               seenIds.current.add(m.id);
@@ -534,7 +540,7 @@ export default function App() {
         }
       } catch {}
 
-      // 5. Aplicar metadados salvos sobre as conversas reconstruídas
+      // 5. Aplicar metadados e atualizar tela com versão final completa
       if (base.length) {
         base = base.map(c => {
           const meta = c.waJid ? metaMap[c.waJid] : null;
@@ -542,7 +548,7 @@ export default function App() {
           return { ...c, name: meta.name || c.name, paused: meta.paused ?? c.paused, leadData: { ...c.leadData, ...(meta.leadData || {}) } };
         });
         setConvos(base);
-        setActiveId(base[0].id);
+        setActiveId(prev => prev || base[0].id);
       }
 
       convosLoadedRef.current = true;
