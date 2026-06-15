@@ -1031,7 +1031,38 @@ export default function App() {
     setNewName(""); setShowNew(false);
   }
 
-  // ── Resumo preview text ────────────────────────────────────────────────────
+  // ── Resumo preview ────────────────────────────────────────────────────────
+  const [resumoTextoIA, setResumoTextoIA] = useState("");
+  const [resumoGerandoIA, setResumoGerandoIA] = useState(false);
+  const [resumoConvoId, setResumoConvoId] = useState(null);
+
+  async function toggleResumo() {
+    if (showResumo) { setShowResumo(false); return; }
+    setShowResumo(true);
+    // Gera resumo IA se ainda não gerou para esta conversa
+    if (resumoConvoId === activeId) return;
+    if (!cfg.geminiKey || !active) return;
+    setResumoGerandoIA(true);
+    setResumoTextoIA("");
+    try {
+      const historico = msgs.filter(m => m.type === "text" || !m.type)
+        .map(m => `[${m.from === "cliente" ? "Cliente" : "Aurora"}]: ${m.text || ""}`).join("\n");
+      const r = await fetch("/api/gemini", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: cfg.geminiKey,
+          system: "Gere um resumo executivo comercial em português. Inclua: o que o cliente quer, estágio da negociação, pontos importantes da conversa e próximos passos sugeridos. Máximo 8 linhas, sem markdown, sem asteriscos.",
+          contents: [{ role: "user", parts: [{ text: `Resumo desta conversa:\n${historico}` }] }],
+        })
+      });
+      const d = await r.json();
+      const texto = d.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+      setResumoTextoIA(texto);
+      setResumoConvoId(activeId);
+    } catch {}
+    setResumoGerandoIA(false);
+  }
+
   function resumoPreview() {
     const siR = scoreInfo(score);
     return [
@@ -1857,9 +1888,9 @@ export default function App() {
               {/* Barra de resumo — sempre visível acima do input */}
               {msgs.length > 0 && (
                 <div style={{ background: W.leftHdr, borderTop: `1px solid ${W.divider}20`, padding: "6px 16px", display: "flex", gap: 8, flexShrink: 0 }}>
-                  <button onClick={() => setShowResumo(v => !v)}
+                  <button onClick={toggleResumo}
                     style={{ flex: 1, background: showResumo ? W.active : W.inputBg, border: "none", borderRadius: 8, padding: "7px 0", color: showResumo ? W.green : W.text, fontSize: 12, cursor: "pointer", fontWeight: showResumo ? 700 : 400 }}>
-                    📋 Resumo
+                    {resumoGerandoIA ? "⏳ Gerando..." : "📋 Ver resumo"}
                   </button>
                   {resumoSent[activeId] ? (
                     <div style={{ flex: 2, background: "#00a88420", border: "1px solid #00a88444", borderRadius: 8, padding: "7px 0", color: W.green, fontSize: 12, textAlign: "center" }}>✓ Enviado!</div>
@@ -1875,8 +1906,20 @@ export default function App() {
 
               {/* Preview resumo */}
               {showResumo && (
-                <div style={{ background: "#0d1f2d", borderTop: `1px solid ${W.divider}`, padding: 14, flexShrink: 0, maxHeight: 240, overflowY: "auto" }}>
+                <div style={{ background: "#0d1f2d", borderTop: `1px solid ${W.divider}`, padding: 14, flexShrink: 0, maxHeight: 280, overflowY: "auto" }}>
                   <pre style={{ color: W.text, fontSize: 13, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{resumoPreview()}</pre>
+                  {resumoGerandoIA && (
+                    <div style={{ color: W.sub, fontSize: 12, marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
+                      <div style={{ width: 7, height: 7, borderRadius: "50%", background: W.green, animation: "pulse 1.2s infinite" }} />
+                      Gerando resumo da conversa...
+                    </div>
+                  )}
+                  {resumoTextoIA && resumoConvoId === activeId && (
+                    <div style={{ marginTop: 10, borderTop: `1px solid ${W.divider}`, paddingTop: 10 }}>
+                      <div style={{ color: W.green, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>📝 RESUMO DA CONVERSA</div>
+                      <pre style={{ color: W.text, fontSize: 12, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{resumoTextoIA}</pre>
+                    </div>
+                  )}
                   {attachments.length > 0 && (
                     <div style={{ marginTop: 10 }}>
                       <div style={{ color: W.sub, fontSize: 12, marginBottom: 6 }}>📂 Anexos ({attachments.length})</div>
