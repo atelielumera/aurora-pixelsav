@@ -743,10 +743,12 @@ export default function App() {
 
   // ── Enviar resposta ────────────────────────────────────────────────────────
   const [sendError, setSendError] = useState("");
+  const [sendOk, setSendOk] = useState(false);
   async function confirmSend() {
     if (!editedSug.trim() || !active) return;
     setSending(true);
     setSendError("");
+    setSendOk(false);
     const text = editedSug.trim();
     const localId = Date.now();
     const msg = { from: "aurora", text, time: ts(), id: localId, type: "text" };
@@ -754,21 +756,51 @@ export default function App() {
     setSuggestion(null); setEditedSug("");
     pendingSentRef.current.add(text);
     setTimeout(() => pendingSentRef.current.delete(text), 10000);
-    if (cfg.evoUrl && cfg.evoKey && cfg.instance && active.waJid) {
-      try {
-        // Evolution API v2 expects number without @s.whatsapp.net suffix
-        const number = active.waJid.replace(/@s\.whatsapp\.net$/, "").replace(/@c\.us$/, "");
-        const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `message/sendText/${cfg.instance}` })}`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ number, text })
-        });
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok) setSendError(`Erro ao enviar (${r.status}): ${JSON.stringify(d)}`);
-      } catch (e) { setSendError(`Erro de rede: ${e.message}`); }
-    } else if (!active.waJid) {
-      setSendError("Conversa sem número WhatsApp — mensagem salva localmente apenas.");
-    } else {
-      setSendError(`Config incompleta: evoUrl=${!!cfg.evoUrl} evoKey=${!!cfg.evoKey} instance=${!!cfg.instance} waJid=${!!active.waJid}`);
+
+    const c = cfgRef.current;
+    const waJid = active.waJid;
+
+    if (!c.evoUrl || !c.evoKey || !c.instance) {
+      setSendError(`Configuração incompleta em ⚙️ — faltam: ${[!c.evoUrl && "Evolution URL", !c.evoKey && "API Key", !c.instance && "Instância"].filter(Boolean).join(", ")}`);
+      setSending(false); return;
+    }
+    if (!waJid) {
+      setSendError("Esta conversa não tem número WhatsApp vinculado.");
+      setSending(false); return;
+    }
+
+    // Strip JID suffix — Evolution API v2 expects plain number
+    const number = waJid.replace(/@s\.whatsapp\.net$/, "").replace(/@c\.us$/, "");
+
+    try {
+      const r = await fetch(
+        `/api/evo?${new URLSearchParams({ evoUrl: c.evoUrl, evoKey: c.evoKey, path: `message/sendText/${c.instance}` })}`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ number, text }) }
+      );
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) {
+        setSendOk(true);
+        setTimeout(() => setSendOk(false), 3000);
+      } else {
+        // Try alternate body format (some Evolution API forks)
+        if (r.status === 400 || r.status === 422) {
+          const r2 = await fetch(
+            `/api/evo?${new URLSearchParams({ evoUrl: c.evoUrl, evoKey: c.evoKey, path: `message/sendText/${c.instance}` })}`,
+            { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ number, textMessage: { text } }) }
+          );
+          const d2 = await r2.json().catch(() => ({}));
+          if (r2.ok) {
+            setSendOk(true);
+            setTimeout(() => setSendOk(false), 3000);
+          } else {
+            setSendError(`Erro ${r2.status}: ${d2?.message || d2?.error || JSON.stringify(d2)}`);
+          }
+        } else {
+          setSendError(`Erro ${r.status}: ${d?.message || d?.error || JSON.stringify(d)}`);
+        }
+      }
+    } catch (e) {
+      setSendError(`Erro de rede: ${e.message}`);
     }
     setSending(false);
   }
@@ -1960,7 +1992,12 @@ export default function App() {
                 </div>
               )}
 
-              {/* Erro de envio */}
+              {/* Feedback de envio */}
+              {sendOk && (
+                <div style={{ background: "#10b98115", borderTop: "1px solid #10b98140", padding: "6px 16px", color: "#10b981", fontSize: 12, flexShrink: 0, fontWeight: 600 }}>
+                  Mensagem enviada ao WhatsApp com sucesso
+                </div>
+              )}
               {sendError && (
                 <div style={{ background: "#ef444415", borderTop: "1px solid #ef444440", padding: "6px 16px", color: "#ef4444", fontSize: 12, flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   ❌ {sendError}
