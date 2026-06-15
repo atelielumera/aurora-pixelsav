@@ -734,20 +734,28 @@ export default function App() {
   }, []);
 
   // ── Enviar resposta ────────────────────────────────────────────────────────
+  const [sendError, setSendError] = useState("");
   async function confirmSend() {
     if (!editedSug.trim() || !active) return;
     setSending(true);
+    setSendError("");
     const text = editedSug.trim();
-    const msg = { from: "aurora", text, time: ts(), id: Date.now(), type: "text" };
+    const localId = Date.now();
+    const msg = { from: "aurora", text, time: ts(), id: localId, type: "text" };
     updateConvo(activeId, { messages: [...msgs, msg], lastMsg: text.slice(0, 40), time: ts() });
     setSuggestion(null); setEditedSug("");
     if (cfg.evoUrl && cfg.evoKey && cfg.instance && active.waJid) {
       try {
-        await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `message/sendText/${cfg.instance}` })}`, {
+        const number = active.waJid.replace("@s.whatsapp.net", "").replace("@g.us", "");
+        const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `message/sendText/${cfg.instance}` })}`, {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ number: active.waJid, text })
+          body: JSON.stringify({ number, text })
         });
-      } catch (e) { console.warn("Falha ao enviar:", e); }
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) setSendError(`Erro ao enviar: ${d?.message || d?.error || r.status}`);
+      } catch (e) { setSendError(`Erro de rede: ${e.message}`); }
+    } else if (!active.waJid) {
+      setSendError("Conversa sem número WhatsApp — mensagem salva localmente apenas.");
     }
     setSending(false);
   }
@@ -1936,6 +1944,14 @@ export default function App() {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Erro de envio */}
+              {sendError && (
+                <div style={{ background: "#ef444415", borderTop: "1px solid #ef444440", padding: "6px 16px", color: "#ef4444", fontSize: 12, flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  ❌ {sendError}
+                  <button onClick={() => setSendError("")} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 14 }}>✕</button>
                 </div>
               )}
 

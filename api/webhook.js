@@ -96,7 +96,8 @@ export default async function handler(req, res) {
 
     const data = req.body?.data || req.body;
     const key = data?.key || {};
-    const fromMe = !!key?.fromMe;
+    // fromMe pode vir como boolean ou string "true"
+    const fromMe = key?.fromMe === true || key?.fromMe === "true";
     const remoteJid = key?.remoteJid || "";
     if (!remoteJid || remoteJid.includes("@g.us")) { res.status(200).json({ ok: true }); return; }
 
