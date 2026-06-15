@@ -733,7 +733,46 @@ export default function App() {
     poll();
     waPollingRef.current = setInterval(poll, 3000);
 
-    // Keepalive: verificar conexão da instância a cada 2 minutos e reconectar se cair
+    // Busca mensagens enviadas (fromMe) diretamente da Evolution API a cada 10s
+    // Isso garante que respostas enviadas pelo WhatsApp aparecem mesmo sem webhook fromMe configurado
+    const pollSent = async () => {
+      const c = cfgRef.current;
+      if (!c.evoUrl || !c.evoKey || !c.instance) return;
+      const convos = convosRef.current;
+      if (!convos.length) return;
+      // Busca para as últimas 5 conversas ativas
+      const targets = [...convos].slice(0, 5);
+      for (const convo of targets) {
+        if (!convo.waJid) continue;
+        try {
+          const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: c.evoUrl, evoKey: c.evoKey, path: `chat/findMessages/${c.instance}` })}`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ where: { key: { remoteJid: convo.waJid, fromMe: true } }, limit: 10 })
+          });
+          if (!r.ok) continue;
+          const d = await r.json().catch(() => ({}));
+          const msgs = Array.isArray(d) ? d : (d?.messages || d?.records || []);
+          for (const m of msgs) {
+            const msgId = m?.key?.id || m?.id;
+            if (!msgId || seenIds.current.has(msgId)) continue;
+            const text = m?.message?.conversation || m?.message?.extendedTextMessage?.text || m?.body || "";
+            if (!text) continue;
+            seenIds.current.add(msgId);
+            const ts2 = m?.messageTimestamp || m?.timestamp || Math.floor(Date.now() / 1000);
+            const msgTime = new Date(ts2 * 1000);
+            const timeStr = `${String(msgTime.getHours()).padStart(2,"0")}:${String(msgTime.getMinutes()).padStart(2,"0")}`;
+            const novaMsg = { from: "aurora", text, time: timeStr, id: Date.now() + Math.random(), type: "text", waId: msgId };
+            setConvos(cs => cs.map(c2 => c2.id === convo.id ? {
+              ...c2,
+              messages: c2.messages.some(em => em.waId === msgId) ? c2.messages : [...c2.messages, novaMsg],
+            } : c2));
+          }
+        } catch {}
+      }
+    };
+    const sentInterval = setInterval(pollSent, 10000);
+
+    // Keepalive: verificar conexão da instância a cada 2 minutos
     const keepalive = setInterval(async () => {
       const c = cfgRef.current;
       if (!c.evoUrl || !c.evoKey || !c.instance) return;
@@ -741,13 +780,12 @@ export default function App() {
         const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: c.evoUrl, evoKey: c.evoKey, path: `instance/connectionState/${c.instance}` })}`);
         const d = await r.json().catch(() => ({}));
         const state = d?.instance?.state || d?.state || d?.instance?.connectionStatus || d?.connectionStatus || "";
-        // Apenas monitorar — NÃO chamar connect() pois derruba a instância
         if (state === "open") setWebhookStatus("ok");
         else setWebhookStatus("error");
       } catch {}
     }, 60000);
 
-    return () => { clearInterval(waPollingRef.current); clearInterval(keepalive); };
+    return () => { clearInterval(waPollingRef.current); clearInterval(sentInterval); clearInterval(keepalive); };
   }, []);
 
   // ── Enviar resposta ────────────────────────────────────────────────────────
