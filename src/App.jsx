@@ -497,18 +497,29 @@ export default function App() {
         if (d.meta && typeof d.meta === "object") metaMap = d.meta;
       } catch {}
 
-      // 3. Tenta carregar conversas completas do Redis (mais confiável que localStorage)
+      // 3. Redis: só enriquecer mensagens de conversas JÁ PRESENTES no localStorage
+      // Nunca adicionar novas conversas do Redis — localStorage é a lista autoritativa
       try {
         const r = await fetch("/api/convos");
         const d = await r.json();
         if (d.convos?.length) {
-          // Usar Redis se tiver mais conversas ou mensagens que o localStorage
-          const redisTotal = d.convos.reduce((n, c) => n + (c.messages?.length || 0), 0);
-          const localTotal = base.reduce((n, c) => n + (c.messages?.length || 0), 0);
-          if (redisTotal >= localTotal) {
+          if (!base.length) {
+            // Sem localStorage — usar Redis como base inicial
             base = d.convos;
             seenIds.current = new Set();
             base.forEach(c => c.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); }));
+          } else {
+            // Com localStorage — só pegar mensagens extras para conversas existentes
+            const localJids = new Set(base.map(c => c.waJid).filter(Boolean));
+            for (const rc of d.convos) {
+              if (!rc.waJid || !localJids.has(rc.waJid)) continue; // ignora quem foi deletado
+              const local = base.find(c => c.waJid === rc.waJid);
+              if (!local) continue;
+              if ((rc.messages?.length || 0) > (local.messages?.length || 0)) {
+                local.messages = rc.messages;
+                rc.messages?.forEach(m => { if (m.waId) seenIds.current.add(m.waId); });
+              }
+            }
           }
         }
       } catch {}
