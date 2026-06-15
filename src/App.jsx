@@ -666,7 +666,7 @@ export default function App() {
             // 1ª mensagem: saudação imediata
             fetch(`/api/evo?${new URLSearchParams({ evoUrl: currentCfg.evoUrl, evoKey: currentCfg.evoKey, path: `message/sendText/${currentCfg.instance}` })}`, {
               method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ number: from, text: SAUDACAO })
+              body: JSON.stringify({ number: from.replace(/@s\.whatsapp\.net$/, "").replace(/@c\.us$/, ""), text: SAUDACAO })
             }).catch(() => {});
             // 2ª mensagem: formulário de coleta após 30s
             if (!coletaTimerRef.current[from]) {
@@ -682,7 +682,7 @@ export default function App() {
                 } : c));
                 fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg2.evoUrl, evoKey: cfg2.evoKey, path: `message/sendText/${cfg2.instance}` })}`, {
                   method: "POST", headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ number: from, text: COLETA_MSG })
+                  body: JSON.stringify({ number: from.replace(/@s\.whatsapp\.net$/, "").replace(/@c\.us$/, ""), text: COLETA_MSG })
                 }).catch(() => {});
               }, 30000);
             }
@@ -756,16 +756,19 @@ export default function App() {
     setTimeout(() => pendingSentRef.current.delete(text), 10000);
     if (cfg.evoUrl && cfg.evoKey && cfg.instance && active.waJid) {
       try {
-        const number = active.waJid; // send full JID, Evolution API v2 accepts this
+        // Evolution API v2 expects number without @s.whatsapp.net suffix
+        const number = active.waJid.replace(/@s\.whatsapp\.net$/, "").replace(/@c\.us$/, "");
         const r = await fetch(`/api/evo?${new URLSearchParams({ evoUrl: cfg.evoUrl, evoKey: cfg.evoKey, path: `message/sendText/${cfg.instance}` })}`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ number, text })
         });
         const d = await r.json().catch(() => ({}));
-        if (!r.ok) setSendError(`Erro ao enviar: ${d?.message || d?.error || r.status}`);
+        if (!r.ok) setSendError(`Erro ao enviar (${r.status}): ${JSON.stringify(d)}`);
       } catch (e) { setSendError(`Erro de rede: ${e.message}`); }
     } else if (!active.waJid) {
       setSendError("Conversa sem número WhatsApp — mensagem salva localmente apenas.");
+    } else {
+      setSendError(`Config incompleta: evoUrl=${!!cfg.evoUrl} evoKey=${!!cfg.evoKey} instance=${!!cfg.instance} waJid=${!!active.waJid}`);
     }
     setSending(false);
   }
